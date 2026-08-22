@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+html {
+  /*
+   * Tilting the headshot projects its near edge a few dozen pixels past its
+   * own box — the overflow is the artwork's own empty margin, and should never
+   * put a horizontal scrollbar on the page.
+   *
+   * `clip` rather than `hidden`: `hidden` would make the element a scroll
+   * container, which breaks the pinned hero (a pinned element measures itself
+   * against the scroller it lives in).
+   */
+  overflow-x: clip;
+}
+
 @theme inline {
   --font-chillax-extralight: var(--font-chillax-extralight);
   --font-chillax-light: var(--font-chillax-light);
