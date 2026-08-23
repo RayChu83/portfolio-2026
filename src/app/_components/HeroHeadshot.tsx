@@ -6,11 +6,13 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { SplitText } from "gsap/SplitText";
 import Image from "next/image";
 import type { CSSProperties } from "react";
-import { useRef } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { DottedMap, type Marker } from "@/components/ui/dotted-map";
 import headshotPhoto from "../../../public/headshot.png";
 import kawaiiHeadshotBackground from "../../../public/kawaii_headshot_background.svg";
 import kawaiiHeadshotForeground from "../../../public/kawaii_headshot_foreground.svg";
+import { useMediaQuery } from "../_hooks/useMediaQuery";
 import { useTilt } from "../_hooks/useTilt";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger, SplitText);
@@ -57,11 +59,77 @@ const FOREGROUND_SHADOW =
   "calc(var(--tilt-y, 0) * -8px + 3px) 4px rgb(0 0 0 / 0.2))";
 
 /**
+ * The same shadow with the lean taken out of it, for COMPACT.
+ *
+ * The offset above is a `calc` over the two custom properties the tilt spring
+ * writes, which means the drop-shadow is re-derived and the layer re-rasterised
+ * on every frame the tilt moves — and on a touch device the tilt is driven by
+ * the device's own orientation, so it is essentially never still. Freezing the
+ * offset makes it a filter the browser resolves once and then leaves alone.
+ *
+ * What is lost is the shadow pooling on the side the features have slid away
+ * from. The features still slide — the parallax is perspective acting on the
+ * depth between the layers and does not go anywhere — so what remains is a
+ * fixed overhead light, which is what the `+ 2px` / `+ 3px` in the expression
+ * above already describes at rest.
+ */
+const FOREGROUND_SHADOW_COMPACT = "drop-shadow(2px 3px 4px rgb(0 0 0 / 0.2))";
+
+/**
  * How long the headshot stays pinned, as a share of the viewport height. A
  * percentage in a ScrollTrigger `end` measures against the scroller, so this
- * is 200dvh of scrolling spent with the image held still.
+ * is 400dvh of scrolling spent with the image held still.
+ *
+ * It is also the only pace control the reveal has. Every constant below is a
+ * share of this pin rather than a number of seconds, and the scrub stretches
+ * the timeline across the trigger whatever it adds up to — so scaling those
+ * shares changes the order of events and never the speed. Widening the trigger
+ * is what buys each beat more scrolling, and it slows the whole sequence by the
+ * same factor while leaving every relationship inside it exactly as authored.
  */
-const PIN_LENGTH = "+=200%";
+const PIN_LENGTH = "+=400%";
+
+/**
+ * Which visitors get the cheaper build of the reveal.
+ *
+ * Two conditions, not one, because the two failure modes are different
+ * hardware. `max-width` catches the phone-sized viewport, where the pin has the
+ * least screen to work with and the browser the least memory. `pointer: coarse`
+ * catches the rest of the touch devices whatever their width — a tablet in
+ * landscape is 1024px or more and is still a phone's GPU, and it is exactly the
+ * device that reports a comfortable viewport while dropping frames under a
+ * compound filter. Either alone leaves a common class of device on the
+ * expensive path.
+ *
+ * A comma rather than the `or` of media queries level 4: this string is handed
+ * to `window.matchMedia` as well as to GSAP, and a list is the form every
+ * browser that can render the rest of this component already parses.
+ *
+ * Deliberately not a `prefers-reduced-motion` check. That preference is a
+ * request about motion and is answered by its own branch further down, which
+ * removes the movement and keeps the picture. This is a statement about the
+ * frame budget, and the answer to it is the same reveal built out of cheaper
+ * parts — nobody is being shown less because of it.
+ */
+const COMPACT = "(max-width: 1023px), (pointer: coarse)";
+
+/** Visitors who have not asked for less movement, and so get the reveal. */
+const MOTION = "(prefers-reduced-motion: no-preference)";
+
+/**
+ * The pin, shortened for those visitors.
+ *
+ * Not a saving in work per frame — it is a saving in how many frames are spent
+ * in the expensive state at all. Every pixel of the pin is a pixel scrolled
+ * with the stage held by a transform, the scrub recomputing the timeline and
+ * the compositor holding the promoted layers; 400dvh of that is a long time to
+ * ask a phone to sustain, and on a short viewport it is also a lot of thumb.
+ *
+ * The reveal itself is untouched by this. Every constant above is a share of
+ * the pin rather than a number of seconds, so a shorter trigger runs the same
+ * sequence in the same order and simply runs it faster — see PIN_LENGTH.
+ */
+const PIN_LENGTH_COMPACT = "+=250%";
 
 /**
  * Where each label's wave of glyphs begins, in timeline units — the scrubbed
@@ -212,23 +280,6 @@ const PLACE_BOTTOM = "calc((100% - 100dvh) / 2)";
  * left animating something detached. Inline style is part of that saved HTML
  * and comes back with it.
  */
-const UNDERLINE_THICKNESS = "0.15em";
-const UNDERLINE_BASELINE = "100%";
-
-/**
- * The rule itself: a flat black gradient, since a background wants an image
- * rather than a colour. Black rather than the type's own colour, and faded by
- * one custom property on the paragraph, which the span inherits — for the same
- * reason as above, the paragraph is the nearest element SplitText will not
- * rewrite.
- *
- * It needs a fade of its own because the span's box is laid out whether or not
- * its glyphs are currently translated out of sight. Left alone, the rule would
- * be sitting there at full width, under nothing, for the whole of the wave
- * that is still delivering the words.
- */
-const UNDERLINE_COLOR =
-  "linear-gradient(rgb(0 0 0 / var(--underline, 0)), rgb(0 0 0 / var(--underline, 0)))";
 
 /**
  * What the photograph draws back to, and the corner radius it carries once it
@@ -391,9 +442,39 @@ const FEATURES_EXIT = 0.3;
  * still be resolving the face at the moment the face appears, which loses the
  * one frame the whole transition is built around; ending it early means the
  * photograph is already sharp and waiting when the wipe finally clears the eyes.
+ *
+ * Dropped entirely under COMPACT, and it is the single largest saving there.
+ * Everything else the scrub touches is a transform or an opacity, which the
+ * compositor can apply to a layer it already has; a blur is neither. The
+ * browser has to re-rasterise the element through the filter on every tick, at
+ * the size of the filter's own box — which `fill` makes the whole stage — and
+ * it is doing that on the one element that is *also* carrying an animated mask
+ * and sitting inside a 3D-transformed subtree. The focus pull is the nicest
+ * detail in the sequence and it is not worth a phone's entire frame budget, so
+ * the compact build simply arrives sharp.
  */
 const PHOTO_BLUR = 6;
 const PHOTO_FOCUS = 0.28;
+
+/**
+ * How finely the world is sampled, and the same again for COMPACT.
+ *
+ * The count is the map's whole cost twice over: it sets how many points are
+ * projected when the SVG is built, and it is the number of `<circle>` elements
+ * the browser then carries in the document and paints through a mask for the
+ * rest of the visit. Halving it is worth more than it sounds on a phone, where
+ * the map is also being drawn into a frame a fraction of the size — at that
+ * scale the dropped dots are below the point the grain is legible at anyway.
+ *
+ * The radius has to move with it. Spacing is set by the count and the dots have
+ * to stay clear of each other, so a coarser grid can afford a slightly larger
+ * dot — and needs one, or the map thins out into something faint rather than
+ * something simpler. See the note on `mapSamples` at the call site.
+ */
+const MAP_SAMPLES = 10000;
+const MAP_SAMPLES_COMPACT = 4500;
+const MAP_DOT_RADIUS = 0.15;
+const MAP_DOT_RADIUS_COMPACT = 0.22;
 
 /**
  * The photograph is a filled square on a grey studio backdrop, and the drawing
@@ -413,6 +494,25 @@ const PHOTO_MASK =
   "linear-gradient(to top, " +
   "#000 calc(var(--photo-reveal) * 140% - 40%), " +
   "transparent calc(var(--photo-reveal) * 140%))";
+
+/**
+ * The three arguments of the `useSyncExternalStore` below, which is doing the
+ * plainest possible job with it: hand back one value while the server-rendered
+ * markup is being hydrated and a different one forever after.
+ *
+ * There is no store here and nothing to subscribe to — `document.body` does not
+ * change — so the subscribe function registers nothing and returns an
+ * unsubscribe that does nothing. What is wanted is the hook's other half: React
+ * renders `onServer` during hydration and switches to `onClient` once that is
+ * done, which is exactly the handover the portal needs, and it does it without
+ * a `setState` in an effect and the cascading render that comes with one.
+ *
+ * Both snapshots must be stable across calls or React will re-render forever;
+ * these return the same document and the same null every time.
+ */
+const subscribeNever = () => () => {};
+const onClient = () => document.body;
+const onServer = () => null;
 
 export default function HeroHeadshot() {
   // Driven by the pointer anywhere on the page, or by the device's own tilt on
@@ -436,13 +536,129 @@ export default function HeroHeadshot() {
   // An invisible circle the map draws at New York, purely to be measured.
   const markerRef = useRef<SVGCircleElement>(null);
 
+  // Where the two corner labels are rendered: out of this component's own
+  // subtree entirely and onto the end of `<body>` — see the portal below for
+  // why they cannot stay where they are written.
+  //
+  // Resolved through the hook above rather than read straight off `document`
+  // during render, because a portal is not as invisible to hydration as it
+  // looks. It contributes no markup where it is written, but it is still a
+  // child in that position — so a component that renders `null` there on the
+  // server and a portal there on the client has handed React two different
+  // trees to reconcile, and React 19 rejects the mismatch and re-renders the
+  // whole subtree on the client. Deferring the target past hydration means the
+  // hydrating render is the server's render exactly, and the labels arrive on
+  // the commit after it.
+  //
+  // Which is why `overlay` is a dependency of `useGSAP` below, and why that
+  // callback returns early without it: on the first commit the labels do not
+  // exist yet and `roleRef.current` is null, so there is nothing to split. The
+  // second commit has them, and that is the one that builds the timeline.
+  const overlay = useSyncExternalStore(subscribeNever, onClient, onServer);
+
+  // Whether the map may be drawn yet.
+  //
+  // Sampling the world at MAP_SAMPLES points and emitting a circle per dot is
+  // the single largest piece of synchronous work this component does, and none
+  // of it is visible when it runs: the map is at `opacity: 0` until the labels
+  // start leaving, most of a pinned 400dvh later. Left to render with everything
+  // else it lands in the same frame as three SplitText splits and the timeline
+  // build, all of it in front of the hero's first paint — the one frame that
+  // decides how the page feels to arrive at, and on a phone the frame with the
+  // least to spare.
+  //
+  // Two frames of delay is all it takes to get out of the way: the first paints
+  // the hero, and the map goes up on the one after. rAF rather than
+  // `requestIdleCallback`, which would express the intent better but is still
+  // missing from Safari — and an idle callback that never fires would take the
+  // whole timeline with it, since the reveal cannot be built until the marker
+  // it flies to exists.
+  const [mapReady, setMapReady] = useState(false);
+
+  // The render-time half of the COMPACT decision — how finely to sample the map
+  // and whether the features' shadow tracks the tilt. The animation-time half
+  // is the `matchMedia` branch below, off the same query string.
+  //
+  // Reading `false` during hydration costs nothing here: the shadow is a
+  // detail no one is looking at on the first frame, and the map does not
+  // render until `mapReady` two frames later, by which point this is live.
+  const compact = useMediaQuery(COMPACT);
+
+  useEffect(() => {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setMapReady(true));
+    });
+
+    // The backstop, and not a redundant one: a tab that is loaded in the
+    // background paints nothing, so rAF is not throttled there but suspended
+    // outright, and neither of the two above will run until the tab is looked
+    // at. That is the right call for the map — there is no frame to stay out of
+    // the way of — but the reveal is gated on this too, and a hero that has not
+    // measured itself is one that jumps when the visitor finally arrives at it.
+    // A timer keeps running either way, so the page is built and settled before
+    // it is ever seen.
+    const fallback = setTimeout(() => setMapReady(true), 300);
+
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+      clearTimeout(fallback);
+    };
+  }, []);
+
   useGSAP(
     () => {
+      // The corner labels are portaled and so are a commit behind everything
+      // else — see `overlay`. The map is two frames behind that again — see
+      // `mapReady`, and note that the reveal measures New York off a circle the
+      // map has to have drawn. Nothing here can be built until both exist.
+      if (!overlay || !mapReady) return;
+
       // Reduced motion gets the headshot in ordinary flow: no pin, and a page
-      // 200dvh shorter for it.
+      // shorter by the whole of PIN_LENGTH for it.
       const media = gsap.matchMedia();
 
-      media.add("(prefers-reduced-motion: no-preference)", () => {
+      // A conditions object rather than two separate `add`s, so the full build
+      // and the compact one are one piece of code with a handful of values
+      // swapped — the alternative is the whole reveal written twice, and two
+      // copies of a sequence this interdependent would be out of step with each
+      // other by the second edit.
+      //
+      // `motion` carries the guard on its own and `compact` only narrows it.
+      // That asymmetry is deliberate: a browser that cannot parse COMPACT
+      // reports it as simply not matching, which lands such a visitor on the
+      // full build — the behaviour they had before any of this existed — rather
+      // than on no build at all, which is where a pair of complementary queries
+      // would strand them.
+      //
+      // GSAP re-runs this whenever the set of matching conditions changes, so
+      // crossing the breakpoint or docking a tablet with a mouse tears the
+      // reveal down and rebuilds it at the other size, rather than leaving a
+      // 400% pin measured for a viewport that is no longer there.
+      media.add({ motion: MOTION, compact: COMPACT }, (context) => {
+        const { motion, compact } = context.conditions as {
+          motion: boolean;
+          compact: boolean;
+        };
+
+        // Reduced motion matched COMPACT and nothing else. Its own branch below
+        // is what answers that preference.
+        if (!motion) return;
+
+        // The stage's real parent, read now and kept.
+        //
+        // It has to be read before anything below pins the stage, because
+        // pinning changes the answer: ScrollTrigger wraps a pinned element in a
+        // `.pin-spacer` of its own, so from the moment the pin exists
+        // `stageRef.current.parentElement` is that spacer and not the
+        // `min-h-dvh` column the stage was written into. Every use of it here
+        // means the column — the element that is not a flex item of anything,
+        // is never transformed, and whose flow footprint already spans the pin.
+        // Reading it late gets the spacer instead, which is a flex item, is
+        // moved by the pin, and is torn down and rebuilt on every refresh.
+        const wrapper = stageRef.current?.parentElement ?? null;
+
         // Whether the labels should be on screen at all, as opposed to where
         // their glyphs are within the reveal. Everything that hides them —
         // SplitText's line clips, the glyph pose — only exists once this branch
@@ -490,12 +706,21 @@ export default function HeroHeadshot() {
         // because it has to finish sooner. Two tweens can share a target
         // safely as long as they do not share a property — this one owns
         // `filter`, that one owns the transform and the wipe.
-        reveal.fromTo(
-          photoRef.current,
-          { filter: `blur(${PHOTO_BLUR}px)` },
-          { filter: "blur(0px)", ease: "none", duration: PHOTO_FOCUS },
-          0,
-        );
+        //
+        // Skipped outright on the compact build rather than shortened or
+        // softened: a blur of any radius costs the same re-rasterisation per
+        // tick, so a cheaper focus pull is not a thing that exists — see
+        // PHOTO_BLUR. Nothing else has to change to leave it out, because the
+        // photograph's resting state is already sharp and no other tween reads
+        // `filter`.
+        if (!compact) {
+          reveal.fromTo(
+            photoRef.current,
+            { filter: `blur(${PHOTO_BLUR}px)` },
+            { filter: "blur(0px)", ease: "none", duration: PHOTO_FOCUS },
+            0,
+          );
+        }
 
         // The drawing goes the other way, toward the lens and out of the frame.
         // Its two layers keep the depth between them the whole way, so the
@@ -605,20 +830,6 @@ export default function HeroHeadshot() {
         // takes this one off the screen.
         gsap.set(placeRef.current, { visibility: "visible" });
 
-        // The rule under the city arrives with the letters above it, over the
-        // same span the wave takes — see UNDERLINE_COLOR for why it is a fade
-        // on the paragraph rather than anything drawn on the span itself.
-        reveal.fromTo(
-          placeRef.current,
-          { "--underline": 0 },
-          {
-            "--underline": 1,
-            ease: "none",
-            duration: CHAR_STAGGER + CHAR_DURATION,
-          },
-          PLACE_START,
-        );
-
         // Once both phrases have landed, the rest of the pin is spent driving
         // them out through opposite edges while the photograph stays where it
         // is. The paragraphs are `fixed`, so nothing carries them off on its
@@ -719,7 +930,7 @@ export default function HeroHeadshot() {
         // this owns `scale`, `x` and `y`.
         reveal.fromTo(
           photoRef.current,
-          { scale: 1, borderRadius: 0, x: 0, y: 0 },
+          { scale: 1, borderRadius: 48, x: 0, y: 0 },
           {
             scale: PHOTO_SHRINK,
             borderRadius: PHOTO_RADIUS,
@@ -741,13 +952,75 @@ export default function HeroHeadshot() {
           LABELS_EXIT_START,
         );
 
+        // The place label is `absolute` inside the stage and deliberately
+        // hangs past the stage's own bottom edge by PLACE_BOTTOM — see that
+        // constant for why: while the stage is pinned, that overflow is the
+        // gap between the stage's box and the actual bottom of the screen,
+        // and the label needs to reach past the box to land there.
+        //
+        // Nothing about the stage's own flow height accounts for that
+        // overflow, though. Once the pin releases, the stage resumes normal
+        // flow exactly where the pin left it, and whatever comes after it in
+        // the document — MyWork — starts flush against the stage's box,
+        // with the label still hanging into the space above it. Reserving
+        // that space is the fix, not moving the label: the label's position
+        // is load-bearing for the pinned handoff, so the stage's flow
+        // footprint is what has to grow to match it.
+        //
+        // Measured rather than derived from PLACE_BOTTOM directly, because
+        // the formula only accounts for the gap below the stage's box — not
+        // the label's own rendered height on top of that, which depends on
+        // the text, the font and the breakpoint. The overflow between two
+        // rects is invariant under whatever transform the pin is currently
+        // applying to the stage (it moves both rects equally), so this is
+        // safe to read at any scroll position, not just at rest.
+        //
+        // Written onto the stage's *parent* rather than the stage itself —
+        // that matters. The stage is a `flex-1` child of the header's
+        // `min-h-dvh flex flex-col` wrapper, filling exactly whatever the
+        // header leaves of one viewport; margin counts toward a flex item's
+        // own footprint, so a margin-bottom on the stage would eat into that
+        // same allocation and shrink the stage's content box by roughly what
+        // it just added. PLACE_BOTTOM's `100%` resolves against that same
+        // box, so the stage quietly shrinking out from under it pushes the
+        // label's bottom edge past the viewport during the pin — the label
+        // reads as clipped, cut off by the edge of the screen, not by any
+        // overflow rule. The wrapper is not itself a flex item of anything,
+        // so a margin on it only adds space after the hero in the page's own
+        // flow, leaving the stage's carefully-calibrated height untouched.
+        //
+        // Which is why it uses the `wrapper` captured at the top of this branch
+        // rather than reading `stage.parentElement` here. This runs again on
+        // every refresh, and by the second one the pin exists — so the parent it
+        // used to find is the `.pin-spacer`, which is a flex item of the column
+        // and therefore exactly the element the paragraph above explains the
+        // margin must not go on. The reserved space was landing on the spacer,
+        // where it shrinks the stage instead of following it.
+        const fitStageToLabel = () => {
+          const stage = stageRef.current;
+          const place = placeRef.current;
+          if (!stage || !place || !wrapper) return;
+
+          const overflow =
+            place.getBoundingClientRect().bottom -
+            stage.getBoundingClientRect().bottom;
+          wrapper.style.marginBottom = `${Math.max(0, overflow)}px`;
+        };
+
+        // Hung off the same refresh event `invalidateOnRefresh` below relies
+        // on, so a resize or a font load that changes the label's height
+        // re-measures the reserved space along with everything else the
+        // refresh recomputes.
+        ScrollTrigger.addEventListener("refresh", fitStageToLabel);
+        fitStageToLabel();
+
         const pin = ScrollTrigger.create({
           trigger: stageRef.current,
           // The headshot starts below the header rather than centred, so the
           // pin waits until scrolling has carried it to the middle of the
           // viewport — which happens once half the header has gone.
           start: "center center",
-          end: PIN_LENGTH,
+          end: compact ? PIN_LENGTH_COMPACT : PIN_LENGTH,
           pin: true,
           // Leaves a spacer the height of the pin, so everything below simply
           // carries on in normal flow once the hold is over.
@@ -781,10 +1054,79 @@ export default function HeroHeadshot() {
         // is where the labels get their opening state — see `syncLabels`.
         syncLabels(pin);
 
+        // `will-change` is a standing cost, so it is scoped to the window where
+        // it buys something.
+        //
+        // Both of these carry an animated transform — the scene's is written by
+        // the tilt spring, the photograph's by the scrub — and the hint asks the
+        // browser to keep each one on a compositor layer of its own so those
+        // writes never repaint anything. That is worth having while they move.
+        // Left on as a static class, though, it is a promise that outlives the
+        // hero by the whole length of the page: the layers and the GPU memory
+        // behind them stay allocated long after the last thing that could
+        // animate them has scrolled away. On a phone that memory is scarce
+        // enough that browsers give up and stop honouring the hint at all, which
+        // is the one outcome the class was meant to prevent.
+        //
+        // The window is the hero's own passage through the viewport rather than
+        // the pin's active span, because the tilt starts moving the scene as
+        // soon as the pointer does — which is before the pin has begun and after
+        // it has released. It also has to be a hint the browser is given
+        // *ahead* of the movement; set at the instant the animation starts it
+        // arrives too late to have prepared anything.
+        //
+        // Hung off the wrapper rather than the stage, deliberately: the stage is
+        // the pinned element, and ScrollTrigger holds a pinned element still by
+        // transforming it. A second trigger measuring the same element has to
+        // reason about that transform and about which of the two refreshes
+        // first. The wrapper is never pinned and its flow footprint already
+        // spans the hero and the pin's spacer, so it says the same thing without
+        // any of the ordering to get wrong.
+        const layers = [sceneRef.current, photoRef.current];
+
+        // Called by hand as well as from `onToggle`, for the same reason
+        // `syncLabels` is: a toggle reports a change, and the hero is the top of
+        // the page — so on an ordinary load the trigger is simply born active
+        // and has nothing to announce. Left to the callback alone the hint would
+        // never be applied on the one visit where the hero is on screen from the
+        // first frame.
+        const syncWillChange = (self: ScrollTrigger) =>
+          gsap.set(layers, {
+            willChange: self.isActive ? "transform" : "auto",
+          });
+
+        const promote = ScrollTrigger.create({
+          trigger: wrapper,
+          start: "top bottom",
+          end: "bottom top",
+          // Refreshes after the pin, and it has to.
+          //
+          // The wrapper only reaches its full height once the pin has inserted
+          // its spacer inside it — before that it is one viewport of header and
+          // stage, and `bottom top` resolves to a few hundred pixels down the
+          // page. ScrollTrigger refreshes in creation order unless told
+          // otherwise, and both of these are rebuilt on every refresh, so
+          // without a priority this one measures a wrapper the pin has not
+          // finished growing yet and spends the whole hero already past its own
+          // end — releasing the hint at the exact moment the scrub needs it.
+          //
+          // Negative rather than a positive on the pin, so the pin keeps the
+          // default priority it shares with everything else on the page and
+          // this trigger is the only one making a claim about ordering.
+          refreshPriority: -1,
+          onToggle: syncWillChange,
+        });
+
+        syncWillChange(promote);
+
         // Reverting the media context kills the tweens but leaves the markup
         // SplitText built — including the resize and font-load listeners
         // `autoSplit` registered. These put the original text back.
-        return () => splits.forEach((split) => split.revert());
+        return () => {
+          ScrollTrigger.removeEventListener("refresh", fitStageToLabel);
+          wrapper?.style.removeProperty("margin-bottom");
+          splits.forEach((split) => split.revert());
+        };
       });
 
       media.add("(prefers-reduced-motion: reduce)", () => {
@@ -800,8 +1142,9 @@ export default function HeroHeadshot() {
           .timeline({
             scrollTrigger: {
               trigger: stageRef.current,
-              // No pin here means no 200dvh hold to scrub against, so the swap
-              // is hung off the stage's own passage up the viewport instead.
+              // No pin here means no PIN_LENGTH hold to scrub against, so the
+              // swap is hung off the stage's own passage up the viewport
+              // instead.
               start: "center center",
               end: "bottom top",
               scrub: true,
@@ -817,45 +1160,68 @@ export default function HeroHeadshot() {
 
       return () => media.revert();
     },
-    { scope: stageRef },
+    // `revertOnUpdate` so the empty first pass is torn down cleanly before the
+    // real one runs, rather than the two being left stacked on the same
+    // elements.
+    {
+      scope: stageRef,
+      dependencies: [overlay, mapReady],
+      revertOnUpdate: true,
+    },
   );
 
   return (
     <>
-      {/* Siblings of the stage rather than children of it, and `fixed`, so the
-          two of them sit in the corners of the screen. The stage is shorter
-          than the viewport — the header takes the rest — so hanging them inside
-          it would inset them by half that difference, top and bottom.
+      {/* `fixed`, so the two of them sit in the corners of the screen. The
+          stage is shorter than the viewport — the header takes the rest — so
+          hanging them inside it would inset them by half that difference, top
+          and bottom.
 
-          Being `fixed` is not on its own enough to escape it: ScrollTrigger
-          holds a pinned element with an identity `transform`, and a transform of
-          any kind, identity included, makes an element the containing block for
-          the `fixed` descendants beneath it. Out here nothing between these and
-          the viewport carries a transform, filter or perspective.
+          Being `fixed` is not on its own enough to get them there. A transform
+          of any kind, identity included, makes an element the containing block
+          for the `fixed` descendants beneath it, and on this route there are
+          two such elements above these labels in the tree: ScrollTrigger holds
+          the pinned stage with a transform, and ScrollSmoother scrolls the page
+          by translating `#smooth-content`, which wraps everything the route
+          renders. Being written as siblings of the stage clears the first;
+          nothing written anywhere inside the route clears the second.
 
-          They are out of flow, so the column above lays out exactly as if they
-          were not here and the headshot still takes the whole first screen.
+          So they are not left where they are written. The portal hands them to
+          `<body>`, outside the smooth content altogether, where nothing between
+          them and the viewport carries a transform, filter or perspective —
+          which is the only place `fixed` still means the screen. They keep
+          their refs, so the timeline above goes on driving them exactly as it
+          did when they were rendered here.
 
-          `motion-safe:invisible` is what keeps them off the server-rendered
-          paint. Everything that holds a glyph out of sight — the line clips
-          SplitText wraps them in, the pose it starts them from — is built by
-          JavaScript, so between first paint and hydration the browser has
-          nothing but two finished paragraphs to draw, and draws them. Under the
-          same media query the branch that hides them runs, so a visitor who
-          asked for reduced motion, whose branch never poses anything, still
-          gets both labels. */}
-      <p
-        ref={roleRef}
-        className="fixed top-0 left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
-      >
-        Software Engineer
-      </p>
-      <p
-        ref={craftRef}
-        className="fixed bottom-0 text-right right-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
-      >
-        Who Designs
-      </p>
+          Painted over the smooth wrapper rather than under it: the wrapper is
+          itself `fixed` and comes first in the body, and `z-10` against its
+          `auto` settles the order regardless.
+
+          `motion-safe:invisible` is what keeps them off the first paint.
+          Everything that holds a glyph out of sight — the line clips SplitText
+          wraps them in, the pose it starts them from — is built by JavaScript,
+          so before the timeline exists the browser has nothing but two finished
+          paragraphs to draw, and draws them. Under the same media query the
+          branch that hides them runs, so a visitor who asked for reduced
+          motion, whose branch never poses anything, still gets both labels. */}
+      {overlay &&
+        createPortal(
+          <>
+            <p
+              ref={roleRef}
+              className="fixed top-0 left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
+            >
+              Software Engineer
+            </p>
+            <p
+              ref={craftRef}
+              className="fixed bottom-0 text-right right-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
+            >
+              Who Designs
+            </p>
+          </>,
+          overlay,
+        )}
       {/* Takes whatever the header leaves of the first screen, so the two of
           them fill exactly one viewport on landing. ScrollTrigger carries the
           size over to the pin, so the headshot never changes size as it pins
@@ -899,38 +1265,45 @@ export default function HeroHeadshot() {
                 simply stays away: that branch keeps the headshot at full size,
                 where a world map behind it would be a backdrop to a picture
                 that covers its middle rather than a place to put a marker. */}
+            {/* The wrapper is always rendered and the map inside it is not —
+                see `mapReady`. That split is the point: `mapRef` has to exist
+                for the timeline to find, and the layer has to be there for the
+                measurements around it to resolve against, but neither needs a
+                single dot drawn to be true. */}
             <div ref={mapRef} className="size-full" style={{ opacity: 0 }}>
-              <DottedMap
-                markers={NEW_YORK}
-                // One decision, not two: the sample count sets the spacing of
-                // the grid and the radius has to stay under half of it, or
-                // neighbouring dots touch and the coastlines silt up into
-                // solid shapes. Raising the count without pulling the radius
-                // in gives a denser map that reads as a blurrier one.
-                mapSamples={10000}
-                dotRadius={0.15}
-                className="size-full text-neutral-400"
-                // The map is a backdrop, and a backdrop with a visible corner
-                // is a rectangle sitting on the page. Fading the dots out to
-                // nothing towards the edges — rather than painting the page's
-                // own white over them — means the softening survives whatever
-                // ends up behind it.
-                //
-                // MAP_FADE_START is late for a vignette: the drawing runs very
-                // nearly the full width of its box, so an early falloff starts
-                // eating Alaska and New Zealand rather than the empty ocean
-                // around them.
-                fade
-                fadeStart={MAP_FADE_START}
-                // The photograph is the marker, so the map's own is drawn at
-                // zero size in nothing at all. It still has to exist: it is
-                // what puts a projected x/y on screen for `markerFraction` to
-                // read, and `renderMarkerOverlay` only runs for a real marker.
-                markerColor="transparent"
-                renderMarkerOverlay={({ x, y }) => (
-                  <circle ref={markerRef} cx={x} cy={y} r={0.5} fill="none" />
-                )}
-              />
+              {mapReady && (
+                <DottedMap
+                  markers={NEW_YORK}
+                  // One decision, not two: the sample count sets the spacing of
+                  // the grid and the radius has to stay under half of it, or
+                  // neighbouring dots touch and the coastlines silt up into
+                  // solid shapes. Raising the count without pulling the radius
+                  // in gives a denser map that reads as a blurrier one.
+                  mapSamples={compact ? MAP_SAMPLES_COMPACT : MAP_SAMPLES}
+                  dotRadius={compact ? MAP_DOT_RADIUS_COMPACT : MAP_DOT_RADIUS}
+                  className="size-full text-neutral-400"
+                  // The map is a backdrop, and a backdrop with a visible corner
+                  // is a rectangle sitting on the page. Fading the dots out to
+                  // nothing towards the edges — rather than painting the page's
+                  // own white over them — means the softening survives whatever
+                  // ends up behind it.
+                  //
+                  // MAP_FADE_START is late for a vignette: the drawing runs very
+                  // nearly the full width of its box, so an early falloff starts
+                  // eating Alaska and New Zealand rather than the empty ocean
+                  // around them.
+                  fade
+                  fadeStart={MAP_FADE_START}
+                  // The photograph is the marker, so the map's own is drawn at
+                  // zero size in nothing at all. It still has to exist: it is
+                  // what puts a projected x/y on screen for `markerFraction` to
+                  // read, and `renderMarkerOverlay` only runs for a real marker.
+                  markerColor="transparent"
+                  renderMarkerOverlay={({ x, y }) => (
+                    <circle ref={markerRef} cx={x} cy={y} r={0.5} fill="none" />
+                  )}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -952,19 +1325,11 @@ export default function HeroHeadshot() {
             `fixed`, and the corner the label it takes over from vacates. */}
         <p
           ref={placeRef}
-          className="absolute left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
+          className="absolute left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible text-neutral-600"
           style={{ bottom: PLACE_BOTTOM }}
         >
-          From{" "}
-          <span
-            className="cursor-pointer"
-            style={{
-              backgroundImage: UNDERLINE_COLOR,
-              backgroundRepeat: "no-repeat",
-              backgroundSize: `100% ${UNDERLINE_THICKNESS}`,
-              backgroundPosition: `0 ${UNDERLINE_BASELINE}`,
-            }}
-          >
+          From <br />
+          <span className="cursor-pointer text-black font-aeonik-medium">
             New York City
           </span>
         </p>
@@ -982,7 +1347,7 @@ export default function HeroHeadshot() {
               is a 1:1 raster, so it lands on the same grid. */}
           <div
             ref={sceneRef}
-            className="relative size-full transform-3d will-change-transform"
+            className="relative size-full transform-3d"
             style={
               {
                 // `--tilt-strength` is the scrubbed fader on the whole swing —
@@ -1014,7 +1379,7 @@ export default function HeroHeadshot() {
               // The box is square and as tall as the stage, so its width tracks
               // the viewport's height rather than its width.
               sizes="100vh"
-              className="block pointer-events-none object-contain will-change-transform"
+              className="block pointer-events-none object-contain"
               style={
                 {
                   "--photo-reveal": 0,
@@ -1045,7 +1410,7 @@ export default function HeroHeadshot() {
               className="block pointer-events-none object-contain"
               style={{
                 transform: `translateZ(${FOREGROUND_DEPTH}px) scale(${FOREGROUND_SCALE})`,
-                filter: FOREGROUND_SHADOW,
+                filter: compact ? FOREGROUND_SHADOW_COMPACT : FOREGROUND_SHADOW,
               }}
             />
           </div>

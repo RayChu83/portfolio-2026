@@ -42,11 +42,21 @@ export interface DottedMapProps<
   }) => React.ReactNode;
 }
 
+/**
+ * The default for `markers`, hoisted out of the signature.
+ *
+ * A `= []` default builds a fresh array on every render, and an array that is
+ * never twice the same value is one the memo below can never hit — so the
+ * marker projection would rerun each time for callers that pass no markers at
+ * all. One frozen empty array is the same value forever.
+ */
+const NO_MARKERS: never[] = [];
+
 export function DottedMap<M extends Marker = Marker>({
   width = 150,
   height = 75,
   mapSamples = 5000,
-  markers = [],
+  markers = NO_MARKERS,
   dotColor = "currentColor",
   markerColor = "#FF6900",
   dotRadius = 0.2,
@@ -59,12 +69,24 @@ export function DottedMap<M extends Marker = Marker>({
   style,
   ...svgProps
 }: DottedMapProps<M>) {
-  const { points, addMarkers } = createMap({
-    width,
-    height,
-    mapSamples,
-  });
-  const processedMarkers = addMarkers(markers);
+  // Sampling the world at `mapSamples` points is far and away the most
+  // expensive thing this component does, and none of it depends on anything but
+  // the three numbers below — so left in the render body it was being redone in
+  // full every time a parent re-rendered, for a result identical to the one
+  // just thrown away. On the hero that render sits inside the pinned section,
+  // where the main thread has the least to spare.
+  const { points, addMarkers } = React.useMemo(
+    () => createMap({ width, height, mapSamples }),
+    [width, height, mapSamples],
+  );
+
+  // Projecting the markers is cheap by comparison, but it depends on
+  // `addMarkers` — which is only stable because of the memo above — so it is
+  // memoized alongside it rather than left to run against a fresh closure.
+  const processedMarkers = React.useMemo(
+    () => addMarkers(markers),
+    [addMarkers, markers],
+  );
 
   // Ids have to be unique per instance, and `useId` produces colons that are
   // awkward inside url() references
