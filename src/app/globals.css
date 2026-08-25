@@ -163,3 +163,19 @@ html {
     @apply font-sans;
   }
 }
+
+/*
+ * Hides the scrollbar on an otherwise-native scroll container (the Work
+ * carousel drives its own snap/scroll UI and doesn't want the browser's
+ * default track drawn under it) while leaving the element fully scrollable
+ * via wheel, trackpad, touch, and keyboard.
+ */
+@layer utilities {
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+}
