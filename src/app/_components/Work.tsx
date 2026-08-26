@@ -3,6 +3,7 @@
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Image from "next/image";
 import type { KeyboardEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import { useMediaQuery } from "../_hooks/useMediaQuery";
@@ -918,16 +919,17 @@ export default function Work() {
                     }}
                     className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60 will-change-transform"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element -- GSAP writes `filter` straight onto this element every frame of the arc; a plain <img> is the element it is addressing, with no wrapper or generated srcset in between */}
-                    <img
+                    <Image
                       ref={(el) => {
                         imgRefs.current[index] = el;
                       }}
                       src={project.image}
                       alt={project.title}
+                      fill
+                      sizes="(max-width: 768px) 80vw, 720px"
                       loading="lazy"
                       decoding="async"
-                      className="h-full w-full object-cover"
+                      className="object-cover"
                       draggable={false}
                       style={{
                         WebkitMaskImage: IMAGE_MASK,

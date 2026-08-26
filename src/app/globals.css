@@ -20,13 +20,6 @@ html {
 }
 
 @theme inline {
-  --font-chillax-extralight: var(--font-chillax-extralight);
-  --font-chillax-light: var(--font-chillax-light);
-  --font-chillax-regular: var(--font-chillax-regular);
-  --font-chillax-medium: var(--font-chillax-medium);
-  --font-chillax-semibold: var(--font-chillax-semibold);
-  --font-chillax-bold: var(--font-chillax-bold);
-
   --font-aeonik-thin: var(--font-aeonik-thin);
   --font-aeonik-air: var(--font-aeonik-air);
   --font-aeonik-light: var(--font-aeonik-light);
