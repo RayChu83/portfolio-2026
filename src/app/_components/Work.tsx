@@ -6,7 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import type { KeyboardEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import { useMediaQuery } from "../_hooks/useMediaQuery";
-import WorkDescription from "./WorkDescription";
+import WorkDescriptions from "./WorkDescriptions";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
@@ -1079,7 +1079,7 @@ export default function Work() {
         aria-live="polite"
         className="text-white flex flex-col max-w-4xl m-auto gap-6 p-12"
       >
-        <WorkDescription type={PROJECTS[centeredIndex].title} />
+        <WorkDescriptions type={PROJECTS[centeredIndex].title} />
       </div>
     </div>
   );
