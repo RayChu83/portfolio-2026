@@ -5,11 +5,28 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Image from "next/image";
 import type { KeyboardEvent } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "../_hooks/useMediaQuery";
 import WorkDescriptions from "./WorkDescriptions";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
+
+// A mobile address bar sliding away is a viewport resize, and a resize is a
+// full ScrollTrigger refresh — which re-measures every trigger against a
+// viewport that is only briefly that size. Everything on this page is sized
+// in `dvh` and absorbs the change on its own; this stops the refresh storm.
+ScrollTrigger.config({ ignoreMobileResize: true });
+
+/**
+ * Which visitors get the cheaper build of the carousel — the same query, for
+ * the same reasons, as the hero's COMPACT: `max-width` catches the phone,
+ * `pointer: coarse` catches the tablet that reports a desktop viewport while
+ * carrying a phone's GPU. Under it the cards keep the whole transform arc —
+ * rotation, recession, scale, dimming — and drop only the layers a phone
+ * cannot composite: the blur, the radial dissolve mask, the dust and the
+ * grain. See PERFORMANCE-AUDIT.md §5, fix 1.3.
+ */
+const COMPACT = "(max-width: 1023px), (pointer: coarse)";
 
 /**
  * How long the background takes to settle into its new colour once the
@@ -367,6 +384,7 @@ export default function Work() {
   const prefersReducedMotion = useMediaQuery(
     "(prefers-reduced-motion: reduce)",
   );
+  const compact = useMediaQuery(COMPACT);
 
   /**
    * Index into `PROJECTS` of whichever card currently sits nearest the
@@ -377,6 +395,22 @@ export default function Work() {
    */
   const centeredIndexRef = useRef(START_INDEX);
   const [centeredIndex, setCenteredIndex] = useState(START_INDEX);
+  /**
+   * Like `centeredIndex`, but only updated once the scroller has come to
+   * rest — it feeds the `aria-live` region, which would otherwise announce
+   * every project the carousel merely passes on its way somewhere else.
+   */
+  const [settledIndex, setSettledIndex] = useState(START_INDEX);
+  /**
+   * `compact` reads `false` during hydration — the server has no viewport —
+   * so gating the dust and grain on it alone would still put their markup,
+   * and the image fetch the dust layer's `background-image` starts, into a
+   * phone's first paint. They wait for this instead: the first client render
+   * matches the server's (no overlays), and the commit after it mounts them
+   * only where `compact` is genuinely false.
+   */
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   /**
    * The card the carousel has most recently been *told* to go to, which is
@@ -504,15 +538,36 @@ export default function Work() {
       if (!scroller || !track) return;
 
       /**
-       * Distance from one card's centre to the next's — the unit the arc is
-       * measured in. Read from the live layout rather than recomputed from
-       * the `clamp()`s in the class names, so the two can never drift apart.
+       * The carousel's geometry — card centres, half-widths, pitch, and the
+       * scroller's own centre — measured once here and again on real resizes,
+       * never per frame. `updateArc` used to read `offsetLeft`/`offsetWidth`
+       * off every card inside its loop, and every such read after a style
+       * write forces a synchronous layout flush: three forced reflows per
+       * scrolled frame (PERFORMANCE-AUDIT.md, P0-3b). None of these numbers
+       * can change between resizes, so the frame loop now does arithmetic
+       * against this table and reads only `scrollLeft`.
        */
-      const cardPitch = () => {
-        const first = cardRefs.current[0];
-        const second = cardRefs.current[1];
-        if (first && second) return second.offsetLeft - first.offsetLeft;
-        return first ? first.offsetWidth : 1;
+      const metrics = {
+        scrollerCenter: 0,
+        pitch: 1,
+        /** Each card's centre x in the scroller's content space. */
+        centers: [] as number[],
+        /** Each card's half-width, for aiming `perspectiveOrigin`. */
+        halfWidths: [] as number[],
+      };
+
+      const measure = () => {
+        metrics.scrollerCenter = scroller.clientWidth / 2;
+        metrics.centers = cardRefs.current.map((card) =>
+          card ? card.offsetLeft + card.offsetWidth / 2 : 0,
+        );
+        metrics.halfWidths = cardRefs.current.map((card) =>
+          card ? card.offsetWidth / 2 : 0,
+        );
+        metrics.pitch =
+          metrics.centers.length > 1
+            ? metrics.centers[1] - metrics.centers[0] || 1
+            : (metrics.halfWidths[0] ?? 0.5) * 2 || 1;
       };
 
       /**
@@ -544,15 +599,15 @@ export default function Work() {
       const updateArc = () => {
         if (prefersReducedMotion) return;
 
-        const scrollerCenter = scroller.clientWidth / 2;
+        const { scrollerCenter, pitch } = metrics;
+        // The one layout read the frame is allowed — everything else comes
+        // from the metrics table.
         const scrollLeft = scroller.scrollLeft;
-        const pitch = cardPitch() || 1;
 
         cardRefs.current.forEach((card, index) => {
           if (!card) return;
 
-          const cardCenter =
-            card.offsetLeft + card.offsetWidth / 2 - scrollLeft;
+          const cardCenter = metrics.centers[index] - scrollLeft;
           const delta = (cardCenter - scrollerCenter) / pitch;
           const sign = Math.sign(delta);
           // Unclamped, so a card three pitches out is still measurably
@@ -586,7 +641,7 @@ export default function Work() {
           // Rounded to the pixel: a sub-pixel change moves nothing visible but
           // does re-project the card's whole subtree.
           const originX = Math.round(
-            card.offsetWidth / 2 - (cardCenter - scrollerCenter),
+            metrics.halfWidths[index] - (cardCenter - scrollerCenter),
           );
           if (originX !== originValues.current[index]) {
             originValues.current[index] = originX;
@@ -609,55 +664,85 @@ export default function Work() {
               // Uniform, so height falls away with width — see
               // `SCALE_PER_CARD`.
               scale: Math.pow(SCALE_PER_CARD, distance),
-              // On the face rather than on the image, so the dust and grain
-              // overlays dim with the artwork they sit on instead of staying
-              // lit over a darkened card. `filter` makes the face a grouping
-              // element — which flattens *its* contents, all of which are 2D
-              // already — but leaves the face's own transform in the
-              // scroller's 3D context untouched.
-              filter: `brightness(${Math.pow(BRIGHTNESS_PER_CARD, distance)})`,
+              // The compact build dims by fading the whole face instead of a
+              // `brightness()` filter: opacity is applied on the compositor,
+              // a filter re-rasterises the subtree. It also stands in for
+              // the radial dissolve mask the compact card no longer carries.
+              ...(compact
+                ? { opacity: Math.pow(BRIGHTNESS_PER_CARD, distance) }
+                : {}),
             });
 
-            // Quantised, and written only when the bucket actually changes:
-            // the radial masks downstream re-rasterise on every distinct
-            // value, so an unchanged `--depth` is worth the comparison to
-            // avoid. The transform above has no such cost and is set every
-            // frame regardless.
+            // Quantised, and everything below written only when the bucket
+            // actually changes: the masks and filters downstream re-rasterise
+            // on every distinct value, so an unchanged bucket is worth the
+            // comparison to avoid. Only the transform (and the compact
+            // build's opacity) is compositor-cheap enough to set every frame
+            // regardless — which is also why the image's `blur()` now lives
+            // in this gate rather than being rewritten unquantised per frame
+            // (PERFORMANCE-AUDIT.md, P0-3).
             const quantised = Math.round(depth / DEPTH_STEP) * DEPTH_STEP;
 
             if (quantised !== depthValues.current[index]) {
               depthValues.current[index] = quantised;
-              // `setProperty` rather than `gsap.set`: CSSPlugin resolves what
-              // it is given against the element's existing computed style,
-              // and a bare custom property has no such thing to resolve
-              // against, so it silently writes nothing. These are plain
-              // string writes with nothing to interpolate — the DOM call is
-              // both the working route and the cheaper one.
-              // `toFixed` because the quantising multiply lands on binary
-              // float noise — 0.7 arrives as 0.7000000000000001, and that is
-              // the literal string the property would carry.
-              face.style.setProperty("--depth", quantised.toFixed(2));
-              // Dead centre has no outward side to aim the falloff at, so the
-              // sign there is arbitrary.
-              face.style.setProperty("--focus-x", sign < 0 ? "68%" : "32%");
+
+              const img = imgRefs.current[index];
+              if (compact) {
+                // The image keeps brightness/desaturation — the cheap half of
+                // the atmospheric cue — and drops the blur, exactly as the
+                // hero's own PHOTO_BLUR reasoning prescribes for this class
+                // of device.
+                if (img) {
+                  gsap.set(img, {
+                    filter:
+                      `brightness(${1 - quantised * MAX_DIM})` +
+                      ` saturate(${1 - quantised * MAX_DESATURATE})`,
+                  });
+                }
+              } else {
+                // `setProperty` rather than `gsap.set`: CSSPlugin resolves
+                // what it is given against the element's existing computed
+                // style, and a bare custom property has no such thing to
+                // resolve against, so it silently writes nothing. These are
+                // plain string writes with nothing to interpolate — the DOM
+                // call is both the working route and the cheaper one.
+                // `toFixed` because the quantising multiply lands on binary
+                // float noise — 0.7 arrives as 0.7000000000000001, and that
+                // is the literal string the property would carry.
+                face.style.setProperty("--depth", quantised.toFixed(2));
+                // Dead centre has no outward side to aim the falloff at, so
+                // the sign there is arbitrary.
+                face.style.setProperty("--focus-x", sign < 0 ? "68%" : "32%");
+
+                // On the face rather than on the image, so the dust and
+                // grain overlays dim with the artwork they sit on instead of
+                // staying lit over a darkened card. `filter` makes the face
+                // a grouping element — which flattens *its* contents, all of
+                // which are 2D already — but leaves the face's own transform
+                // in the scroller's 3D context untouched.
+                gsap.set(face, {
+                  filter: `brightness(${Math.pow(BRIGHTNESS_PER_CARD, distance)})`,
+                });
+
+                if (img) {
+                  gsap.set(img, {
+                    filter:
+                      `blur(${quantised * MAX_BLUR_PX}px)` +
+                      ` brightness(${1 - quantised * MAX_DIM})` +
+                      ` saturate(${1 - quantised * MAX_DESATURATE})`,
+                  });
+                }
+
+                const dust = dustRefs.current[index];
+                if (dust)
+                  gsap.set(dust, { opacity: quantised * MAX_DUST_OPACITY });
+
+                const grain = grainRefs.current[index];
+                if (grain)
+                  gsap.set(grain, { opacity: quantised * MAX_GRAIN_OPACITY });
+              }
             }
           }
-
-          const img = imgRefs.current[index];
-          if (img) {
-            gsap.set(img, {
-              filter:
-                `blur(${depth * MAX_BLUR_PX}px)` +
-                ` brightness(${1 - depth * MAX_DIM})` +
-                ` saturate(${1 - depth * MAX_DESATURATE})`,
-            });
-          }
-
-          const dust = dustRefs.current[index];
-          if (dust) gsap.set(dust, { opacity: depth * MAX_DUST_OPACITY });
-
-          const grain = grainRefs.current[index];
-          if (grain) gsap.set(grain, { opacity: depth * MAX_GRAIN_OPACITY });
         });
       };
 
@@ -685,6 +770,7 @@ export default function Work() {
             rotateY: 0,
             z: 0,
             scale: 1,
+            opacity: 1,
             filter: "none",
           });
           face.style.setProperty("--depth", "0");
@@ -711,15 +797,12 @@ export default function Work() {
 
       /** Index into `cardRefs`/`PROJECTS` of whichever card sits nearest centre. */
       const nearestCardIndex = () => {
-        const centre = scroller.clientWidth / 2;
+        const scrollLeft = scroller.scrollLeft;
         let best = 0;
         let bestDistance = Infinity;
 
-        cardRefs.current.forEach((card, index) => {
-          if (!card) return;
-          const cardCenter =
-            card.offsetLeft + card.offsetWidth / 2 - scroller.scrollLeft;
-          const distance = Math.abs(cardCenter - centre);
+        metrics.centers.forEach((center, index) => {
+          const distance = Math.abs(center - scrollLeft - metrics.scrollerCenter);
           if (distance < bestDistance) {
             bestDistance = distance;
             best = index;
@@ -770,6 +853,10 @@ export default function Work() {
         window.clearTimeout(settleTimer);
         settleTimer = window.setTimeout(() => {
           targetIndexRef.current = centeredIndexRef.current;
+          // The scroller is at rest — this is the one moment a screen reader
+          // should hear about the project now centred (see the live region
+          // below), rather than every project the carousel merely passed.
+          setSettledIndex(centeredIndexRef.current);
         }, 120);
 
         if (frame) return;
@@ -781,41 +868,102 @@ export default function Work() {
       };
 
       const placeAtIndex = (index: number) => {
-        const card = cardRefs.current[index];
-        if (!card) return;
-
-        scroller.scrollLeft =
-          card.offsetLeft + card.offsetWidth / 2 - scroller.clientWidth / 2;
+        scroller.scrollLeft = metrics.centers[index] - metrics.scrollerCenter;
         centeredIndexRef.current = index;
         targetIndexRef.current = index;
         setCenteredIndex(index);
+        setSettledIndex(index);
         applyLayout();
       };
 
+      // This effect re-runs when `compact` or the motion preference flips,
+      // and the styles the previous run wrote inline — filters, masks,
+      // opacity — belong to the build that just went away. Clear them and
+      // forget the caches so the new build starts from the markup.
+      cardRefs.current.forEach((card, index) => {
+        if (!card) return;
+        card.style.zIndex = "";
+        card.style.perspectiveOrigin = "";
+        zIndexValues.current[index] = NaN;
+        originValues.current[index] = NaN;
+      });
+      faceRefs.current.forEach((face, index) => {
+        if (!face) return;
+        gsap.set(face, { clearProps: "filter,opacity" });
+        face.style.removeProperty("--depth");
+        face.style.removeProperty("--focus-x");
+        depthValues.current[index] = NaN;
+      });
+      for (const img of imgRefs.current) {
+        if (img) gsap.set(img, { clearProps: "filter" });
+      }
+
+      measure();
       placeAtIndex(START_INDEX);
 
+      // A resize changes card width and gap, which moves every card centre —
+      // so the metrics table and the old `scrollLeft` are both stale, and
+      // both are re-derived from the card that *was* centred.
+      //
+      // Two guards, both for mobile. The width check drops the resizes the
+      // address bar generates — those change only the viewport's *height*,
+      // and reacting to them meant re-centring the carousel under the
+      // visitor's finger mid-gesture. The debounce collapses the burst a
+      // real rotation or window drag produces into one re-measure at the
+      // end, instead of a re-layout per intermediate size.
+      let lastWidth = scroller.clientWidth;
+      let resizeTimer: number | undefined;
       const resizeObserver = new ResizeObserver(() => {
-        // A resize changes card width and gap, which moves every
-        // `offsetLeft` — so the old `scrollLeft` no longer centres anything.
-        // Re-derive it from the card that *was* centred rather than scaling
-        // the old offset by how much the track grew: that ratio is only an
-        // approximation, and across a responsive breakpoint (where the
-        // `clamp()`s change slope) it lands far enough out that the browser
-        // snaps to a different card than the one the visitor was reading.
-        placeAtIndex(centeredIndexRef.current);
+        const width = scroller.clientWidth;
+        if (width === lastWidth) return;
+        lastWidth = width;
+
+        window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+          measure();
+          placeAtIndex(centeredIndexRef.current);
+        }, 150);
       });
       resizeObserver.observe(scroller);
+
+      // `will-change` is a standing cost, so — exactly as the hero already
+      // does — the hint is scoped to the window where it buys something: the
+      // faces are promoted while the section is anywhere in the viewport and
+      // released once it has scrolled away, instead of holding three
+      // card-sized compositor layers for the whole session.
+      const syncWillChange = (self: ScrollTrigger) => {
+        for (const face of faceRefs.current) {
+          if (face) face.style.willChange = self.isActive ? "transform" : "auto";
+        }
+      };
+
+      const promote = ScrollTrigger.create({
+        trigger: sectionRef.current,
+        start: "top bottom",
+        end: "bottom top",
+        onToggle: syncWillChange,
+      });
+
+      // A toggle only reports a change — created mid-viewport (a reload down
+      // the page) the trigger is simply born active, so the opening state is
+      // applied by hand.
+      syncWillChange(promote);
 
       scroller.addEventListener("scroll", onScroll, { passive: true });
 
       return () => {
         resizeObserver.disconnect();
+        window.clearTimeout(resizeTimer);
+        promote.kill();
+        for (const face of faceRefs.current) {
+          if (face) face.style.willChange = "";
+        }
         scroller.removeEventListener("scroll", onScroll);
         if (frame) cancelAnimationFrame(frame);
         window.clearTimeout(settleTimer);
       };
     },
-    { scope: sectionRef, dependencies: [prefersReducedMotion] },
+    { scope: sectionRef, dependencies: [prefersReducedMotion, compact] },
   );
 
   /**
@@ -917,7 +1065,9 @@ export default function Work() {
                     ref={(el) => {
                       faceRefs.current[index] = el;
                     }}
-                    className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60 will-change-transform"
+                    // No standing `will-change` — the hint is applied by
+                    // `syncWillChange` only while the section is on screen.
+                    className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60"
                   >
                     <Image
                       ref={(el) => {
@@ -931,10 +1081,17 @@ export default function Work() {
                       decoding="async"
                       className="object-cover"
                       draggable={false}
-                      style={{
-                        WebkitMaskImage: IMAGE_MASK,
-                        maskImage: IMAGE_MASK,
-                      }}
+                      // The radial dissolve re-rasterises the image on every
+                      // distinct `--depth`; the compact build swaps it for
+                      // the opacity ramp on the face and carries no mask.
+                      style={
+                        compact
+                          ? undefined
+                          : {
+                              WebkitMaskImage: IMAGE_MASK,
+                              maskImage: IMAGE_MASK,
+                            }
+                      }
                     />
                     {/*
                     The dust. Same image again, but showing only through the
@@ -944,6 +1101,7 @@ export default function Work() {
                     rather than a second <img> because nothing here needs a
                     second decode, an alt text, or a place in the a11y tree.
                   */}
+                    {hydrated && !compact && (
                     <div
                       ref={(el) => {
                         dustRefs.current[index] = el;
@@ -973,6 +1131,8 @@ export default function Work() {
                         maskComposite: "intersect",
                       }}
                     />
+                    )}
+                    {hydrated && !compact && (
                     <div
                       ref={(el) => {
                         grainRefs.current[index] = el;
@@ -986,6 +1146,7 @@ export default function Work() {
                         maskImage: GRAIN_MASK,
                       }}
                     />
+                    )}
                   </div>
                 </div>
               ))}
@@ -1010,7 +1171,7 @@ export default function Work() {
           disabled={atStart}
           aria-hidden
           tabIndex={-1}
-          className="absolute left-4 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-4 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:block"
+          className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:left-4 md:p-4"
         >
           <svg
             width="24"
@@ -1032,7 +1193,7 @@ export default function Work() {
           disabled={atEnd}
           aria-hidden
           tabIndex={-1}
-          className="absolute right-4 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-4 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:block"
+          className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:right-4 md:p-4"
         >
           <svg
             width="24"
@@ -1074,13 +1235,17 @@ export default function Work() {
       </div>
 
       {/*
-        `aria-live` because this copy swaps out as a side effect of scrolling
-        the carousel — there is no focus change to carry the news on its own.
+        The copy swaps as a side effect of scrolling, with no focus change to
+        carry the news — but the visible container is deliberately *not* a
+        live region: it updates on every card the carousel passes, and a
+        screen reader would re-announce a full paragraph per pass. The
+        visually-hidden region below speaks instead, and only once the
+        scroller has settled — see `settledIndex`.
       */}
-      <div
-        aria-live="polite"
-        className="text-white flex flex-col max-w-4xl m-auto gap-6 p-12"
-      >
+      <div aria-live="polite" className="sr-only">
+        {PROJECTS[settledIndex].title}
+      </div>
+      <div className="text-white flex flex-col max-w-4xl m-auto gap-6 p-12">
         <WorkDescriptions type={PROJECTS[centeredIndex].title} />
       </div>
     </div>

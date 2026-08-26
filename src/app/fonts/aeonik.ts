@@ -1,60 +1,28 @@
 import localFont from "next/font/local";
 
-export const aeonikThin = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Thin.otf",
-  variable: "--font-aeonik-thin",
-  weight: "100",
-});
-
-export const aeonikAir = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Air.otf",
-  variable: "--font-aeonik-air",
-  weight: "200",
-});
-
-export const aeonikLight = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Light.otf",
-  variable: "--font-aeonik-light",
-  weight: "300",
-});
-
+/**
+ * Only the two faces the markup actually uses. The other six weights were
+ * declared, preloaded, and — via `document.fonts.ready` — even gated the old
+ * page loader, without a single element ever rendering in them.
+ *
+ * `display: "swap"` so text paints immediately in the fallback face and swaps
+ * when the webfont lands — the page is never blocked on a font.
+ */
 export const aeonikRegular = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Regular.otf",
+  src: "./Aeonik/AeonikProTRIAL-Regular.woff2",
   variable: "--font-aeonik-regular",
   weight: "400",
+  display: "swap",
 });
 
 export const aeonikMedium = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Medium.otf",
+  src: "./Aeonik/AeonikProTRIAL-Medium.woff2",
   variable: "--font-aeonik-medium",
   weight: "500",
-});
-
-export const aeonikSemiBold = localFont({
-  src: "./Aeonik/AeonikProTRIAL-SemiBold.otf",
-  variable: "--font-aeonik-semibold",
-  weight: "600",
-});
-
-export const aeonikBold = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Bold.otf",
-  variable: "--font-aeonik-bold",
-  weight: "700",
-});
-
-export const aeonikBlack = localFont({
-  src: "./Aeonik/AeonikProTRIAL-Black.otf",
-  variable: "--font-aeonik-black",
-  weight: "900",
+  display: "swap",
 });
 
 export const aeonikVariables = [
-  aeonikThin.variable,
-  aeonikAir.variable,
-  aeonikLight.variable,
   aeonikRegular.variable,
   aeonikMedium.variable,
-  aeonikSemiBold.variable,
-  aeonikBold.variable,
-  aeonikBlack.variable,
 ].join(" ");

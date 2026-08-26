@@ -2,29 +2,34 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import headshotPhoto from "../../../public/headshot.png";
 import kawaiiHeadshotBackground from "../../../public/kawaii_headshot_background.svg";
 import kawaiiHeadshotForeground from "../../../public/kawaii_headshot_foreground.svg";
 
 /**
- * The images the hero paints before a single pixel of scroll has happened —
- * everything a visitor sees without doing anything first. Preloading exactly
- * these, and nothing further down the page, is what lets the gate close in
- * roughly the time the hero itself takes to become presentable rather than
- * waiting on art the visitor has to scroll to earn.
+ * The two drawn layers the hero paints over the photograph. These are the
+ * only things the gate waits for: they are SVGs, which Next serves at their
+ * static URL — so preloading `src` here warms exactly the request the page
+ * goes on to make. The photograph is *not* on this list, deliberately: as a
+ * raster it is routed through `/_next/image`, so its static-import `src` is a
+ * different URL from the one the page paints, and preloading it fetched a
+ * copy the visitor never saw while releasing the gate with the real request
+ * still cold. It carries `priority` on its `<Image>` instead, which has Next
+ * emit a preload for the URL that is actually painted.
  */
 const HERO_IMAGES = [
-  headshotPhoto.src,
   kawaiiHeadshotBackground.src,
   kawaiiHeadshotForeground.src,
 ];
 
 /**
  * However fast the network is, a visitor is never held here longer than
- * this — a slow font CDN or a stalled image request should degrade to the
- * page arriving unstyled for a moment, not to a loader that never lets go.
+ * this. Short, because the gate now exists only to keep the two drawings
+ * from popping in out of order — the fonts are `display: swap` and paint a
+ * fallback face immediately, so there is nothing else worth holding a white
+ * screen for. A long gate converts a slow-but-progressive load into a blank
+ * one, which is strictly worse.
  */
-const FALLBACK_TIMEOUT = 4000;
+const FALLBACK_TIMEOUT = 1500;
 
 const preload = (src: string) =>
   new Promise<void>((resolve) => {
@@ -35,12 +40,8 @@ const preload = (src: string) =>
   });
 
 /**
- * Holds the page behind a plain spinner until the things its first screen
- * actually depends on are in hand: the webfonts the hero's type is measured
- * in, and the three layered images it paints. Without this gate those arrive
- * piecemeal — a fallback face swapping to the real one, drawings popping in
- * out of order — which is the "looks broken, then fine a few seconds later"
- * visitors were seeing.
+ * Holds the page behind a plain spinner until the hero's two drawn layers
+ * are in hand, so they arrive as one picture rather than piecemeal.
  *
  * The page itself is still rendered underneath from the first frame, not
  * mounted late — this only paints over it, so there is nothing extra for the
@@ -55,12 +56,7 @@ export default function PageLoader({ children }: { children: ReactNode }) {
       if (!cancelled) setReady(true);
     }, FALLBACK_TIMEOUT);
 
-    const fonts =
-      typeof document.fonts !== "undefined"
-        ? document.fonts.ready.catch(() => {})
-        : Promise.resolve();
-
-    Promise.all([fonts, ...HERO_IMAGES.map(preload)]).then(() => {
+    Promise.all(HERO_IMAGES.map(preload)).then(() => {
       if (!cancelled) setReady(true);
     });
 

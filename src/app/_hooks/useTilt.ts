@@ -34,6 +34,18 @@ const MAX_FRAME = 1 / 15;
 const SETTLED_OFFSET = 0.0005;
 const SETTLED_VELOCITY = 0.0005;
 
+/**
+ * How far the input has to move, in tilt units, before the target is updated.
+ *
+ * The pointer needs no such filter — it goes still when the hand does — but a
+ * real accelerometer never reports the same reading twice, and without a dead
+ * zone that noise re-arms the spring on every `deviceorientation` event: the
+ * rAF loop never parks and the whole page pays a 60 fps tax for a head that
+ * is visibly at rest (PERFORMANCE-AUDIT.md, P0-4). 0.012 tilt units is 0.3°
+ * of physical lean — below anything a hand can hold deliberately.
+ */
+const TARGET_DEAD_ZONE = 0.012;
+
 type DeviceOrientationEventWithPermission = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<PermissionState>;
 };
@@ -130,13 +142,66 @@ export function useTilt<T extends HTMLElement>() {
       frame = requestAnimationFrame(render);
     };
 
-    const setTarget = (x: number, y: number) => {
-      target.x = clamp(x, -1, 1);
-      target.y = clamp(y, -1, 1);
+    const setTarget = (x: number, y: number, deadZone = 0) => {
+      const nextX = clamp(x, -1, 1);
+      const nextY = clamp(y, -1, 1);
+      if (
+        deadZone > 0 &&
+        Math.abs(nextX - target.x) < deadZone &&
+        Math.abs(nextY - target.y) < deadZone
+      ) {
+        return;
+      }
+      target.x = nextX;
+      target.y = nextY;
       frame ??= requestAnimationFrame(render);
     };
 
     const cleanups: Array<() => void> = [];
+
+    // The input listeners are attached only while the tilted element is
+    // actually on screen and the tab is visible. Without this the spring runs
+    // for the whole session — the hero's tilt is invisible from the moment
+    // the visitor scrolls past it, and a backgrounded tab has no frames at
+    // all, yet both kept paying for the loop. `attach`/`detach` are filled in
+    // by whichever input branch runs below; the observers own *when*.
+    let attachInput: () => void = () => {};
+    let detachInput: () => void = () => {};
+    let inputActive = false;
+    let onScreen = false;
+
+    const syncInput = () => {
+      const shouldRun = onScreen && document.visibilityState === "visible";
+      if (shouldRun === inputActive) return;
+      inputActive = shouldRun;
+      if (shouldRun) {
+        attachInput();
+      } else {
+        detachInput();
+        // Park the loop too: with no input coming there is nothing to chase,
+        // and a settled spring re-arms itself on the next setTarget anyway.
+        if (frame !== null) {
+          cancelAnimationFrame(frame);
+          frame = null;
+          lastTime = 0;
+          backlog = 0;
+        }
+      }
+    };
+
+    const intersection = new IntersectionObserver(([entry]) => {
+      onScreen = entry?.isIntersecting ?? false;
+      syncInput();
+    });
+    intersection.observe(element);
+
+    const handleVisibility = () => syncInput();
+    document.addEventListener("visibilitychange", handleVisibility);
+    cleanups.push(() => {
+      intersection.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (inputActive) detachInput();
+    });
 
     if (isTiltable) {
       // `beta` leans the device away from / toward you, `gamma` side to side.
@@ -152,15 +217,21 @@ export function useTilt<T extends HTMLElement>() {
 
         setTarget(
           (gamma - origin.gamma) / DEVICE_TILT_RANGE_DEG,
-          (beta - origin.beta) / DEVICE_TILT_RANGE_DEG
+          (beta - origin.beta) / DEVICE_TILT_RANGE_DEG,
+          // See TARGET_DEAD_ZONE — sensor noise must not keep the spring
+          // permanently awake.
+          TARGET_DEAD_ZONE
         );
       };
 
+      // Permission (where required) is only ever granted once; after that the
+      // visibility machinery attaches and detaches the listener freely.
       const listen = () => {
-        window.addEventListener("deviceorientation", handleOrientation);
-        cleanups.push(() =>
-          window.removeEventListener("deviceorientation", handleOrientation)
-        );
+        attachInput = () =>
+          window.addEventListener("deviceorientation", handleOrientation);
+        detachInput = () =>
+          window.removeEventListener("deviceorientation", handleOrientation);
+        syncInput();
       };
 
       const requestPermission = (
@@ -203,12 +274,15 @@ export function useTilt<T extends HTMLElement>() {
       // at whatever edge the pointer left through.
       const handlePointerLeave = () => setTarget(0, 0);
 
-      window.addEventListener("pointermove", handlePointerMove);
-      document.addEventListener("pointerleave", handlePointerLeave);
-      cleanups.push(() => {
+      attachInput = () => {
+        window.addEventListener("pointermove", handlePointerMove);
+        document.addEventListener("pointerleave", handlePointerLeave);
+      };
+      detachInput = () => {
         window.removeEventListener("pointermove", handlePointerMove);
         document.removeEventListener("pointerleave", handlePointerLeave);
-      });
+      };
+      syncInput();
     }
 
     return () => {

@@ -1,12 +1,11 @@
 "use client";
 
-import {
-  motion,
-  useReducedMotion,
-  useScroll,
-  useTransform,
-} from "motion/react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useRef } from "react";
+
+gsap.registerPlugin(useGSAP, ScrollTrigger);
 
 /** How small the greeting gets once the shrink has run its course. */
 const MIN_SCALE = 0.6;
@@ -19,36 +18,60 @@ const MIN_SCALE = 0.6;
  * as the text scales, and the whole thing stays on the compositor. It also
  * scales the two type sizes together, which keeping a pair of `font-size`
  * ramps in step would not.
+ *
+ * Driven by GSAP's ScrollTrigger rather than `motion`'s `useScroll`, so the
+ * page runs one scroll-observation system instead of two — this scale and the
+ * description crossfade were the only two things `motion` shipped for.
  */
 export default function Header() {
   const ref = useRef<HTMLElement>(null);
-  const reduceMotion = useReducedMotion();
+  const scaledRef = useRef<HTMLDivElement>(null);
 
-  // Measured against the header itself rather than a fixed pixel distance:
-  // progress runs 0 → 1 over exactly the scroll it takes for the header to
-  // travel up and out of the viewport, so the ramp tracks the type's own size
-  // at every breakpoint instead of a number tuned for one of them.
-  const { scrollYProgress } = useScroll({
-    target: ref,
-    offset: ["start start", "end start"],
-  });
+  useGSAP(
+    () => {
+      const media = gsap.matchMedia();
 
-  const scale = useTransform(scrollYProgress, [0, 1], [1, MIN_SCALE]);
+      // Reduced motion keeps the greeting at full size — the shrink is
+      // decoration, not content.
+      media.add("(prefers-reduced-motion: no-preference)", () => {
+        // Scrubbed over exactly the scroll it takes for the header to travel
+        // up and out of the viewport, so the ramp tracks the type's own size
+        // at every breakpoint instead of a number tuned for one of them.
+        // `ease: "none"` because under a scrub the wheel is the easing.
+        const tween = gsap.fromTo(
+          scaledRef.current,
+          { scale: 1 },
+          {
+            scale: MIN_SCALE,
+            ease: "none",
+            scrollTrigger: {
+              // The measured element and the scaled one have to be different
+              // boxes: a scroll range read off an element that the same range
+              // is busy shrinking feeds its own output back into its input.
+              // The <header> keeps its layout box — and so a fixed scroll
+              // range — while the child does the moving.
+              trigger: ref.current,
+              start: "top top",
+              end: "bottom top",
+              scrub: true,
+            },
+          },
+        );
+
+        return () => {
+          tween.scrollTrigger?.kill();
+          tween.kill();
+        };
+      });
+
+      return () => media.revert();
+    },
+    { scope: ref },
+  );
 
   return (
-    // The measured element and the scaled one have to be different boxes: a
-    // scroll range read off an element that the same range is busy shrinking
-    // feeds its own output back into its input, and the scale snaps between
-    // its endpoints instead of easing across them. The <header> keeps its
-    // layout box — and so a fixed scroll range — while the child does the
-    // moving.
     <header ref={ref} className="pt-20 pb-4">
-      <motion.div
-        className="origin-top"
-        // `useTransform` clamps at the ends, so this parks at MIN_SCALE rather
-        // than collapsing further once the header has scrolled past.
-        style={{ scale: reduceMotion ? 1 : scale }}
-      >
+      <div ref={scaledRef} className="origin-top">
         <h1 className="text-center font-aeonik-regular tracking-tight mb-8">
           <span className="text-neutral-600 text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
             Hey there,
@@ -68,7 +91,7 @@ export default function Header() {
             Try to tilt your device
           </span>
         </h4>
-      </motion.div>
+      </div>
     </header>
   );
 }

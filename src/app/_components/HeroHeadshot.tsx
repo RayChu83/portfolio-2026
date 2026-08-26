@@ -8,7 +8,6 @@ import Image from "next/image";
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { DottedMap, type Marker } from "@/components/ui/dotted-map";
 import headshotPhoto from "../../../public/headshot.png";
 import kawaiiHeadshotBackground from "../../../public/kawaii_headshot_background.svg";
 import kawaiiHeadshotForeground from "../../../public/kawaii_headshot_foreground.svg";
@@ -16,6 +15,14 @@ import { useMediaQuery } from "../_hooks/useMediaQuery";
 import { useTilt } from "../_hooks/useTilt";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger, SplitText);
+
+// A mobile address bar sliding away is a viewport resize, and a resize is a
+// full ScrollTrigger refresh — which, mid-pin, re-measures the hero against a
+// viewport that is only briefly that size and visibly jumps the scrub. The
+// stage is sized in `dvh`, so it absorbs the change on its own; this stops
+// the refresh from firing. (Global, so it also covers the carousel's
+// triggers, which load later.)
+ScrollTrigger.config({ ignoreMobileResize: true });
 
 /**
  * Camera distance in px. Must stay in step with the `perspective-distant`
@@ -129,7 +136,7 @@ const MOTION = "(prefers-reduced-motion: no-preference)";
  * the pin rather than a number of seconds, so a shorter trigger runs the same
  * sequence in the same order and simply runs it faster — see PIN_LENGTH.
  */
-const PIN_LENGTH_COMPACT = "+=250%";
+const PIN_LENGTH_COMPACT = "+=150%";
 
 /**
  * Where each label's wave of glyphs begins, in timeline units — the scrubbed
@@ -315,16 +322,19 @@ const PHOTO_RADIUS = 300;
 const TILT_RELEASE = 0.14;
 
 /**
- * The one place on Earth the whole retreat is aimed at. 40.7128 / -74.006 is
- * New York — the pair in the brief, 37.5665 / 126.978, is Seoul, and is the
- * other marker in the demo this is modelled on.
- *
- * A module constant rather than a value built in the render, so the array
- * identity never changes and `DottedMap` — which re-runs `createMap` over
- * `mapSamples` points on every render it is given — is only ever asked to do
- * that work once.
+ * The dotted world map, precomputed at build time by `scripts/generate-map.mjs`
+ * — sampling the world raster took the better part of a second of blocked main
+ * thread on a fast desktop, and several on a phone. Each density ships as a
+ * single SVG path (dots baked in as circle subpaths) plus New York's position
+ * as a fraction of the 2:1 frame, so the client neither samples anything nor
+ * measures the DOM to find the marker.
  */
-const NEW_YORK: Marker[] = [{ lat: 40.7128, lng: -74.006, size: 0 }];
+type MapData = {
+  width: number;
+  height: number;
+  path: string;
+  marker: { x: number; y: number };
+};
 
 /**
  * How small the map starts. It arrives by growing into place rather than by
@@ -457,26 +467,6 @@ const PHOTO_BLUR = 6;
 const PHOTO_FOCUS = 0.28;
 
 /**
- * How finely the world is sampled, and the same again for COMPACT.
- *
- * The count is the map's whole cost twice over: it sets how many points are
- * projected when the SVG is built, and it is the number of `<circle>` elements
- * the browser then carries in the document and paints through a mask for the
- * rest of the visit. Halving it is worth more than it sounds on a phone, where
- * the map is also being drawn into a frame a fraction of the size — at that
- * scale the dropped dots are below the point the grain is legible at anyway.
- *
- * The radius has to move with it. Spacing is set by the count and the dots have
- * to stay clear of each other, so a coarser grid can afford a slightly larger
- * dot — and needs one, or the map thins out into something faint rather than
- * something simpler. See the note on `mapSamples` at the call site.
- */
-const MAP_SAMPLES = 10000;
-const MAP_SAMPLES_COMPACT = 4500;
-const MAP_DOT_RADIUS = 0.15;
-const MAP_DOT_RADIUS_COMPACT = 0.22;
-
-/**
  * The photograph is a filled square on a grey studio backdrop, and the drawing
  * is linework on the page's own white. Cross-fading one into the other just
  * slides a grey rectangle over the hero, corners first — so instead the photo
@@ -533,8 +523,6 @@ export default function HeroHeadshot() {
   // elements, so the one being measured is never the one carrying a transform.
   const mapFrameRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
-  // An invisible circle the map draws at New York, purely to be measured.
-  const markerRef = useRef<SVGCircleElement>(null);
 
   // Where the two corner labels are rendered: out of this component's own
   // subtree entirely and onto the end of `<body>` — see the portal below for
@@ -556,24 +544,11 @@ export default function HeroHeadshot() {
   // second commit has them, and that is the one that builds the timeline.
   const overlay = useSyncExternalStore(subscribeNever, onClient, onServer);
 
-  // Whether the map may be drawn yet.
-  //
-  // Sampling the world at MAP_SAMPLES points and emitting a circle per dot is
-  // the single largest piece of synchronous work this component does, and none
-  // of it is visible when it runs: the map is at `opacity: 0` until the labels
-  // start leaving, most of a pinned 400dvh later. Left to render with everything
-  // else it lands in the same frame as three SplitText splits and the timeline
-  // build, all of it in front of the hero's first paint — the one frame that
-  // decides how the page feels to arrive at, and on a phone the frame with the
-  // least to spare.
-  //
-  // Two frames of delay is all it takes to get out of the way: the first paints
-  // the hero, and the map goes up on the one after. rAF rather than
-  // `requestIdleCallback`, which would express the intent better but is still
-  // missing from Safari — and an idle callback that never fires would take the
-  // whole timeline with it, since the reveal cannot be built until the marker
-  // it flies to exists.
-  const [mapReady, setMapReady] = useState(false);
+  // The map's precomputed geometry, dynamic-imported after mount so the JSON
+  // for the *other* density never ships, and nothing about the map sits on the
+  // hero's first paint. The reveal cannot be built until the marker's position
+  // is known, so the timeline below gates on this.
+  const [mapData, setMapData] = useState<MapData | null>(null);
 
   // The render-time half of the COMPACT decision — how finely to sample the map
   // and whether the features' shadow tracks the tilt. The animation-time half
@@ -581,39 +556,34 @@ export default function HeroHeadshot() {
   //
   // Reading `false` during hydration costs nothing here: the shadow is a
   // detail no one is looking at on the first frame, and the map does not
-  // render until `mapReady` two frames later, by which point this is live.
+  // render until `mapData` arrives a moment later, by which point this is
+  // live.
   const compact = useMediaQuery(COMPACT);
 
   useEffect(() => {
-    let inner = 0;
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => setMapReady(true));
+    let cancelled = false;
+    // Decided off `matchMedia` directly rather than the `compact` hook value,
+    // which is still `false` during hydration — keying the import off it would
+    // fetch the full-density file first and the compact one a beat later.
+    const wantsCompact = window.matchMedia(COMPACT).matches;
+    (wantsCompact
+      ? import("./map-data.compact.json")
+      : import("./map-data.full.json")
+    ).then((module_) => {
+      if (!cancelled) setMapData(module_.default as MapData);
     });
-
-    // The backstop, and not a redundant one: a tab that is loaded in the
-    // background paints nothing, so rAF is not throttled there but suspended
-    // outright, and neither of the two above will run until the tab is looked
-    // at. That is the right call for the map — there is no frame to stay out of
-    // the way of — but the reveal is gated on this too, and a hero that has not
-    // measured itself is one that jumps when the visitor finally arrives at it.
-    // A timer keeps running either way, so the page is built and settled before
-    // it is ever seen.
-    const fallback = setTimeout(() => setMapReady(true), 300);
-
     return () => {
-      cancelAnimationFrame(outer);
-      cancelAnimationFrame(inner);
-      clearTimeout(fallback);
+      cancelled = true;
     };
   }, []);
 
   useGSAP(
     () => {
       // The corner labels are portaled and so are a commit behind everything
-      // else — see `overlay`. The map is two frames behind that again — see
-      // `mapReady`, and note that the reveal measures New York off a circle the
-      // map has to have drawn. Nothing here can be built until both exist.
-      if (!overlay || !mapReady) return;
+      // else — see `overlay`. The map's geometry arrives by dynamic import —
+      // see `mapData` — and the reveal flies the photograph at the marker
+      // position it carries. Nothing here can be built until both exist.
+      if (!overlay || !mapData) return;
 
       // Reduced motion gets the headshot in ordinary flow: no pin, and a page
       // shorter by the whole of PIN_LENGTH for it.
@@ -695,12 +665,32 @@ export default function HeroHeadshot() {
         // curve because each one's tween is a thirtieth of the pin; this one
         // runs the whole reveal, and a curve on it would read as the picture
         // lagging the scroll.
-        reveal.fromTo(
-          photoRef.current,
-          { z: PHOTO_DEPTH, "--photo-reveal": 0 },
-          { z: 0, "--photo-reveal": 1, ease: "none", duration: PHOTO_ARRIVE },
-          0,
-        );
+        if (compact) {
+          // The wipe is a gradient mask whose stops move with the scrub, and
+          // every distinct value re-rasterises the photograph at full stage
+          // size — the same class of cost as the blur this branch already
+          // refuses. The compact build parks the mask fully open and the
+          // corner radius at its final value once, so both are rasterised a
+          // single time, and the photograph arrives by an opacity crossfade
+          // the compositor applies to a layer it already has.
+          gsap.set(photoRef.current, {
+            "--photo-reveal": 1,
+            borderRadius: PHOTO_RADIUS,
+          });
+          reveal.fromTo(
+            photoRef.current,
+            { z: PHOTO_DEPTH, autoAlpha: 0 },
+            { z: 0, autoAlpha: 1, ease: "none", duration: PHOTO_ARRIVE },
+            0,
+          );
+        } else {
+          reveal.fromTo(
+            photoRef.current,
+            { z: PHOTO_DEPTH, "--photo-reveal": 0 },
+            { z: 0, "--photo-reveal": 1, ease: "none", duration: PHOTO_ARRIVE },
+            0,
+          );
+        }
 
         // Its own tween rather than another property on the one above, only
         // because it has to finish sooner. Two tweens can share a target
@@ -855,33 +845,11 @@ export default function HeroHeadshot() {
           ),
         );
 
-        // Where New York falls inside the map's frame, as a fraction of it.
-        //
-        // Measured off the DOM rather than projected by hand, because the
-        // projection is `svg-dotted-map`'s and asking it twice — once to draw
-        // the map, once to work out where the marker went — is both slower and
-        // a second copy of a number that has to agree exactly with the first.
-        // The map is already drawing a marker there; this reads back where.
-        //
-        // Read here, once, while the map is still at rest: this is the fraction
-        // at scale 1, which is precisely what the origin and the flight path
-        // below both need. And because the frame is held to the drawing's own
+        // Where New York falls inside the map's frame, as a fraction of it —
+        // precomputed at build time along with the dots, so nothing has to be
+        // measured off the DOM. Because the frame is held to the drawing's own
         // 2:1 ratio, the fraction survives every resize — see MAP_ASPECT.
-        const markerFraction = () => {
-          const marker = markerRef.current;
-          const frame = mapFrameRef.current;
-          if (!marker || !frame) return { x: 0.5, y: 0.5 };
-
-          const m = marker.getBoundingClientRect();
-          const f = frame.getBoundingClientRect();
-
-          return {
-            x: (m.left + m.width / 2 - f.left) / f.width,
-            y: (m.top + m.height / 2 - f.top) / f.height,
-          };
-        };
-
-        const marker = markerFraction();
+        const marker = mapData.marker;
 
         // How far the photograph has to travel from the centre of the stage to
         // land on that point, in px, on one axis.
@@ -928,12 +896,17 @@ export default function HeroHeadshot() {
         // is long finished by here. They share the element's transform safely:
         // GSAP keeps the components separately, and that one owns `z` while
         // this owns `scale`, `x` and `y`.
+        // The compact build set the radius to its final value at the top of
+        // this branch — animating border-radius repaints the element and its
+        // clip on every tick, and at marker size nobody can see the ramp.
         reveal.fromTo(
           photoRef.current,
-          { scale: 1, borderRadius: 48, x: 0, y: 0 },
+          compact
+            ? { scale: 1, x: 0, y: 0 }
+            : { scale: 1, borderRadius: 48, x: 0, y: 0 },
           {
             scale: PHOTO_SHRINK,
-            borderRadius: PHOTO_RADIUS,
+            ...(compact ? {} : { borderRadius: PHOTO_RADIUS }),
             x: flight("x"),
             y: flight("y"),
             ease: "none",
@@ -1165,7 +1138,7 @@ export default function HeroHeadshot() {
     // elements.
     {
       scope: stageRef,
-      dependencies: [overlay, mapReady],
+      dependencies: [overlay, mapData],
       revertOnUpdate: true,
     },
   );
@@ -1179,23 +1152,16 @@ export default function HeroHeadshot() {
 
           Being `fixed` is not on its own enough to get them there. A transform
           of any kind, identity included, makes an element the containing block
-          for the `fixed` descendants beneath it, and on this route there are
-          two such elements above these labels in the tree: ScrollTrigger holds
-          the pinned stage with a transform, and ScrollSmoother scrolls the page
-          by translating `#smooth-content`, which wraps everything the route
-          renders. Being written as siblings of the stage clears the first;
-          nothing written anywhere inside the route clears the second.
+          for the `fixed` descendants beneath it, and ScrollTrigger holds the
+          pinned stage with exactly such a transform — so anything `fixed`
+          inside the stage would resolve against the stage, not the screen.
 
           So they are not left where they are written. The portal hands them to
-          `<body>`, outside the smooth content altogether, where nothing between
-          them and the viewport carries a transform, filter or perspective —
-          which is the only place `fixed` still means the screen. They keep
-          their refs, so the timeline above goes on driving them exactly as it
-          did when they were rendered here.
-
-          Painted over the smooth wrapper rather than under it: the wrapper is
-          itself `fixed` and comes first in the body, and `z-10` against its
-          `auto` settles the order regardless.
+          `<body>`, where nothing between them and the viewport carries a
+          transform, filter or perspective — which is the only place `fixed`
+          still means the screen. They keep their refs, so the timeline above
+          goes on driving them exactly as it did when they were rendered here.
+          `z-10` settles their paint order over the page's own content.
 
           `motion-safe:invisible` is what keeps them off the first paint.
           Everything that holds a glyph out of sight — the line clips SplitText
@@ -1266,43 +1232,67 @@ export default function HeroHeadshot() {
                 where a world map behind it would be a backdrop to a picture
                 that covers its middle rather than a place to put a marker. */}
             {/* The wrapper is always rendered and the map inside it is not —
-                see `mapReady`. That split is the point: `mapRef` has to exist
+                see `mapData`. That split is the point: `mapRef` has to exist
                 for the timeline to find, and the layer has to be there for the
                 measurements around it to resolve against, but neither needs a
-                single dot drawn to be true. */}
+                single dot drawn to be true.
+
+                The whole map is one <path> with a circle subpath per dot,
+                generated at build time — see `scripts/generate-map.mjs` — so
+                the browser carries a single element rather than thousands.
+
+                The dots fade out to nothing towards the edges — rather than
+                being cut by the page's own white — so the map has no
+                rectangular border, and the softening survives whatever ends
+                up behind it. MAP_FADE_START is late for a vignette: the
+                drawing runs very nearly the full width of its box, so an
+                early falloff starts eating Alaska and New Zealand rather
+                than the empty ocean around them. */}
             <div ref={mapRef} className="size-full" style={{ opacity: 0 }}>
-              {mapReady && (
-                <DottedMap
-                  markers={NEW_YORK}
-                  // One decision, not two: the sample count sets the spacing of
-                  // the grid and the radius has to stay under half of it, or
-                  // neighbouring dots touch and the coastlines silt up into
-                  // solid shapes. Raising the count without pulling the radius
-                  // in gives a denser map that reads as a blurrier one.
-                  mapSamples={compact ? MAP_SAMPLES_COMPACT : MAP_SAMPLES}
-                  dotRadius={compact ? MAP_DOT_RADIUS_COMPACT : MAP_DOT_RADIUS}
+              {mapData && (
+                <svg
+                  viewBox={`0 0 ${mapData.width} ${mapData.height}`}
                   className="size-full text-neutral-400"
-                  // The map is a backdrop, and a backdrop with a visible corner
-                  // is a rectangle sitting on the page. Fading the dots out to
-                  // nothing towards the edges — rather than painting the page's
-                  // own white over them — means the softening survives whatever
-                  // ends up behind it.
-                  //
-                  // MAP_FADE_START is late for a vignette: the drawing runs very
-                  // nearly the full width of its box, so an early falloff starts
-                  // eating Alaska and New Zealand rather than the empty ocean
-                  // around them.
-                  fade
-                  fadeStart={MAP_FADE_START}
-                  // The photograph is the marker, so the map's own is drawn at
-                  // zero size in nothing at all. It still has to exist: it is
-                  // what puts a projected x/y on screen for `markerFraction` to
-                  // read, and `renderMarkerOverlay` only runs for a real marker.
-                  markerColor="transparent"
-                  renderMarkerOverlay={({ x, y }) => (
-                    <circle ref={markerRef} cx={x} cy={y} r={0.5} fill="none" />
-                  )}
-                />
+                >
+                  <defs>
+                    {/* Default cx/cy/r in objectBoundingBox units, so the
+                        falloff is an ellipse fitted to the map's 2:1 box
+                        rather than a circle — the fade stays the same depth
+                        on all four sides. */}
+                    <radialGradient id="hero-map-fade">
+                      <stop
+                        offset={MAP_FADE_START}
+                        stopColor="#fff"
+                        stopOpacity={1}
+                      />
+                      <stop offset={1} stopColor="#fff" stopOpacity={0} />
+                    </radialGradient>
+                    {/* userSpaceOnUse so the mask covers the whole viewBox;
+                        left to default it would size off the dots' own
+                        bounding box. */}
+                    <mask
+                      id="hero-map-mask"
+                      maskUnits="userSpaceOnUse"
+                      x={0}
+                      y={0}
+                      width={mapData.width}
+                      height={mapData.height}
+                    >
+                      <rect
+                        x={0}
+                        y={0}
+                        width={mapData.width}
+                        height={mapData.height}
+                        fill="url(#hero-map-fade)"
+                      />
+                    </mask>
+                  </defs>
+                  <path
+                    d={mapData.path}
+                    fill="currentColor"
+                    mask="url(#hero-map-mask)"
+                  />
+                </svg>
               )}
             </div>
           </div>
@@ -1328,9 +1318,9 @@ export default function HeroHeadshot() {
           className="absolute left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible text-neutral-600"
           style={{ bottom: PLACE_BOTTOM }}
         >
-          From <br />
+          From{" "}
           <span className="cursor-pointer text-black font-aeonik-medium">
-            New York City
+            New <br /> York City
           </span>
         </p>
         {/* Perspective lives on a wrapper that is exactly the scene's box, so
@@ -1374,7 +1364,11 @@ export default function HeroHeadshot() {
               ref={photoRef}
               src={headshotPhoto}
               alt="Ray"
-              loading="eager"
+              // `priority` has Next emit a `<link rel="preload">` for the
+              // exact `/_next/image` URL this renders — the page loader used
+              // to preload the static original instead, which is a different
+              // URL the page never paints.
+              priority
               fill
               // The box is square and as tall as the stage, so its width tracks
               // the viewport's height rather than its width.

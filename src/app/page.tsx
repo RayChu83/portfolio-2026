@@ -1,6 +1,6 @@
 import Header from "./_components/Header";
 import HeroHeadshot from "./_components/HeroHeadshot";
-import Work from "./_components/Work";
+import DeferredWork from "./_components/DeferredWork";
 
 export default function Home() {
   return (
@@ -9,7 +9,7 @@ export default function Home() {
         <Header />
         <HeroHeadshot />
       </div>
-      <Work />
+      <DeferredWork />
     </>
   );
 }

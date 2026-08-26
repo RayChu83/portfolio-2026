@@ -20,14 +20,8 @@ html {
 }
 
 @theme inline {
-  --font-aeonik-thin: var(--font-aeonik-thin);
-  --font-aeonik-air: var(--font-aeonik-air);
-  --font-aeonik-light: var(--font-aeonik-light);
   --font-aeonik-regular: var(--font-aeonik-regular);
   --font-aeonik-medium: var(--font-aeonik-medium);
-  --font-aeonik-semibold: var(--font-aeonik-semibold);
-  --font-aeonik-bold: var(--font-aeonik-bold);
-  --font-aeonik-black: var(--font-aeonik-black);
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
