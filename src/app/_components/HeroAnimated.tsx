@@ -1226,7 +1226,7 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
             it for free while it was still a flex item. */}
         <div
           ref={frameRef}
-          className="absolute inset-y-0 left-1/2 -translate-x-1/2 aspect-square max-w-full perspective-distant"
+          className="absolute inset-y-0 m-auto aspect-square max-w-full perspective-distant"
         >
           {/* Both SVGs share a 1:1 viewBox with `preserveAspectRatio="xMidYMid
               meet"`, so rendering them into the same square box lines their

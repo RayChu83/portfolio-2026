@@ -41,6 +41,24 @@ const COMPACT = "(max-width: 1023px), (pointer: coarse)";
  */
 const FADE_DURATION = 0.6;
 
+/**
+ * How long the section's contents lag the ground they sit on, in seconds.
+ *
+ * The two fades are the same length and the same ease; only their starts are
+ * staggered, and the stagger flips with the direction. Going dark the ground
+ * moves first and the contents follow; coming back to white the contents leave
+ * first and the ground follows them.
+ *
+ * That ordering is a legibility constraint rather than a flourish. Everything
+ * in here is white — the heading, the dots, the description — so on a white
+ * ground it is invisible, and the two fades crossing simultaneously means the
+ * content is at its most transparent exactly while the ground behind it is at
+ * its lightest. Letting the ground darken slightly first, and letting the
+ * content go slightly first on the way back, keeps the text on a ground it can
+ * be read against for the whole of both transitions.
+ */
+const CONTENT_FADE_DELAY = 0.15;
+
 const BLACK = "#000000";
 const WHITE = "#FFFFFF";
 
@@ -52,25 +70,36 @@ const WHITE = "#FFFFFF";
  */
 const PROJECTS = [
   {
-    title: "Unlevered",
-    image: "/Unlevered.png",
-    description:
-      "Unlevered is an AI platform designed to streamline your investment due diligence process. It utilizes an in-house LLM to simplify complex SEC filings, allowing users to break down financial jargon into digestible bullet points, detect subtle language changes in filings year-over-year, and efficiently search for specific keywords across all filings. Additionally, it provides automated alerts for filings and keywords, customizable alerts for specific tickers, and access to decades of earnings call histories with AI-powered summaries.",
-  },
-  {
     title: "Blitz",
     image: "/blitz.jpg",
-    description: "Placeholder description for Blitz.",
+  },
+  {
+    title: "Unlevered",
+    image: "/Unlevered.png",
   },
   {
     title: "Syllabus to Calendar",
     image: "/SyllabusToCalendar.png",
-    description: "Placeholder description for Syllabus to Calendar.",
   },
 ] as const;
 
-/** Whichever card the carousel opens on — the middle of however many there are. */
-const START_INDEX = Math.floor(PROJECTS.length / 2);
+/**
+ * Whichever card the carousel opens on: the first one, so the rank reads left
+ * to right from its actual beginning.
+ *
+ * Opening on the middle card put the carousel at rest half-way through itself,
+ * with a project already passed off to the left — nothing on screen said which
+ * end the list started at, and the first project was the one a visitor was
+ * least likely to reach. First is also the only index where "where it opens"
+ * and "where the list starts" are the same place.
+ *
+ * Zero is the left end of the scroll range as well as the first card, and that
+ * is not a coincidence: the track's horizontal padding is exactly what a card
+ * needs to reach the centre (see the `px-[calc(...)]` on the track), so
+ * centring card 0 *is* `scrollLeft: 0`. The carousel opens flush against its
+ * own start with nothing scrolled past.
+ */
+const START_INDEX = 0;
 
 /**
  * The depth model: cover flow, so the viewer stands in *front* of the rank
@@ -358,6 +387,12 @@ const GRAIN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent(
 
 export default function Work() {
   const sectionRef = useRef<HTMLDivElement>(null);
+  /**
+   * Everything the section draws, as one element — so the contents can fade
+   * with the ground without every individual child needing its own tween, and
+   * so the fade is a single compositor-level opacity rather than a dozen.
+   */
+  const contentRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   /**
@@ -507,34 +542,72 @@ export default function Work() {
       // the preference flips mid-session, which the class alone could not.
       if (prefersReducedMotion) {
         gsap.set(sectionRef.current, { backgroundColor: BLACK });
+        gsap.set(contentRef.current, { opacity: 1 });
         return;
       }
 
-      const toBlack = () =>
-        gsap.to(sectionRef.current, {
-          backgroundColor: BLACK,
+      // Both fades share a shape, so they are stated once. `overwrite` is what
+      // makes a reversal mid-transition safe: each of these owns exactly one
+      // property on exactly one element, so killing whatever else is animating
+      // it — including a sibling tween still sitting out its
+      // CONTENT_FADE_DELAY — is precisely the right thing rather than a
+      // heavy-handed one.
+      const fade = (
+        target: Element | null,
+        vars: gsap.TweenVars,
+        delay: number,
+      ) =>
+        gsap.to(target, {
+          ...vars,
           duration: FADE_DURATION,
+          delay,
           ease: "power2.out",
+          overwrite: true,
         });
 
-      const toWhite = () =>
-        gsap.to(sectionRef.current, {
-          backgroundColor: WHITE,
-          duration: FADE_DURATION,
-          ease: "power2.out",
-        });
+      const toBlack = () => {
+        fade(sectionRef.current, { backgroundColor: BLACK }, 0);
+        fade(contentRef.current, { opacity: 1 }, CONTENT_FADE_DELAY);
+      };
+
+      const toWhite = () => {
+        fade(contentRef.current, { opacity: 0 }, 0);
+        fade(
+          sectionRef.current,
+          { backgroundColor: WHITE },
+          CONTENT_FADE_DELAY,
+        );
+      };
 
       // No `scrub` here: the trigger fires once each time the section's top
       // crosses the middle of the viewport, in either direction, and the
-      // fade above plays out on its own clock from there — scrolling
+      // fades above play out on their own clock from there — scrolling
       // further, stopping, or reversing mid-fade never rewinds or resumes
-      // it partway.
+      // one partway.
       const trigger = ScrollTrigger.create({
         trigger: sectionRef.current,
         start: "top center",
         onEnter: toBlack,
         onLeaveBack: toWhite,
       });
+
+      // A toggle callback only reports a *crossing*, so a visitor who reloads
+      // part-way down the page starts past the line having never crossed it
+      // and neither callback ever runs. That was survivable while the trigger
+      // only owned a background colour — the section simply stayed on the
+      // page's white — but the contents now open at `opacity-0`, so the same
+      // gap would leave them invisible with no scroll that could bring them
+      // back. `progress` reads the position rather than a crossing, so it
+      // answers for a trigger born past its own start.
+      //
+      // Only the past-the-line case is stated. Before it, the markup is
+      // already right — no inline background, contents at `opacity-0` — and
+      // writing the white out explicitly would paint the section over
+      // whatever the page's own ground happens to be.
+      if (trigger.progress > 0) {
+        gsap.set(sectionRef.current, { backgroundColor: BLACK });
+        gsap.set(contentRef.current, { opacity: 1 });
+      }
 
       return () => trigger.kill();
     },
@@ -818,7 +891,9 @@ export default function Work() {
         let bestDistance = Infinity;
 
         metrics.centers.forEach((center, index) => {
-          const distance = Math.abs(center - scrollLeft - metrics.scrollerCenter);
+          const distance = Math.abs(
+            center - scrollLeft - metrics.scrollerCenter,
+          );
           if (distance < bestDistance) {
             bestDistance = distance;
             best = index;
@@ -949,7 +1024,8 @@ export default function Work() {
       // card-sized compositor layers for the whole session.
       const syncWillChange = (self: ScrollTrigger) => {
         for (const face of faceRefs.current) {
-          if (face) face.style.willChange = self.isActive ? "transform" : "auto";
+          if (face)
+            face.style.willChange = self.isActive ? "transform" : "auto";
         }
       };
 
@@ -1013,260 +1089,276 @@ export default function Work() {
     // above. It is inert otherwise: the animated branch writes an inline
     // `background-color`, which outranks a class.
     <div ref={sectionRef} className="min-h-dvh py-64 motion-reduce:bg-black">
-      <header>
-        <h1 className="text-white text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl tracking-tight font-aeonik-regular text-center">
-          Products I&apos;ve <br /> helped ship
-        </h1>
-      </header>
+      {/* Everything the section draws, wrapped as one element so it can
+          fade with the ground behind it — see `contentRef`.
 
-      <div
-        className="relative mt-24"
-        role="group"
-        aria-roledescription="carousel"
-        aria-label="Products I've helped ship"
-      >
-        {/* Nothing here but the edge fade — see `EDGE_FADE`. */}
+          `opacity-0` is the resting state in the markup rather than
+          something the effect writes on mount, so the server's HTML is
+          already correct and the contents cannot flash in before the
+          ground has darkened. `motion-reduce:opacity-100` is the same
+          arrangement as the ground's own `motion-reduce:bg-black`: under
+          the preference there is no fade to be the start of, so the
+          contents are simply present, with no JavaScript involved in
+          making them so. */}
+      <div ref={contentRef} className="opacity-0 motion-reduce:opacity-100">
+        <header>
+          <p className="text-white text-center text-2xl mb-4 opacity-60">
+            Internships + Projects
+          </p>
+          <h1 className="text-white text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl tracking-tight font-aeonik-regular text-center">
+            Products I&apos;ve <br /> helped ship
+          </h1>
+        </header>
+
         <div
-          style={{
-            WebkitMaskImage: EDGE_FADE,
-            maskImage: EDGE_FADE,
-          }}
+          className="relative mt-24"
+          role="group"
+          aria-roledescription="carousel"
+          aria-label="Products I've helped ship"
         >
+          {/* Nothing here but the edge fade — see `EDGE_FADE`. */}
           <div
-            ref={scrollerRef}
-            tabIndex={0}
-            onKeyDown={handleKeyDown}
-            aria-label="Projects, use the arrow keys to browse"
-            // `overflow-y-hidden` clips to the scroller's own content box, and the
-            // flanking cards are both scaled up and pulled toward the camera — so
-            // the vertical padding here is not decoration, it is the headroom that
-            // keeps their top and bottom edges from being sliced off.
-            //
-            // No wheel handler any more. Translating vertical wheel deltas into
-            // horizontal scroll meant calling `preventDefault` on every mostly
-            // vertical gesture over the scroller — including once the carousel
-            // had run out of cards in that direction — and since this sits in
-            // the middle of a full-height section, that is where the cursor
-            // usually is. The page stopped scrolling until the visitor thought
-            // to move the pointer off it. Mouse users get the arrows below
-            // instead, which is a control they can see.
-            className="scrollbar-hidden flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+            style={{
+              WebkitMaskImage: EDGE_FADE,
+              maskImage: EDGE_FADE,
+            }}
           >
-            {/*
-              No `perspective` or `preserve-3d` anywhere above the cards. Either
-              one here would gather every card into a single 3D rendering
-              context, where painting order is decided by depth sorting the
-              flattened faces cannot take part in — see `BASE_Z_INDEX`. Each
-              card brings its own perspective instead.
-            */}
             <div
-              ref={trackRef}
-              className="relative flex shrink-0 items-center gap-6 px-[calc(50%-clamp(130px,15vw,360px))]"
+              ref={scrollerRef}
+              tabIndex={0}
+              onKeyDown={handleKeyDown}
+              aria-label="Projects, use the arrow keys to browse"
+              // `overflow-y-hidden` clips to the scroller's own content box, and the
+              // flanking cards are both scaled up and pulled toward the camera — so
+              // the vertical padding here is not decoration, it is the headroom that
+              // keeps their top and bottom edges from being sliced off.
+              //
+              // No wheel handler any more. Translating vertical wheel deltas into
+              // horizontal scroll meant calling `preventDefault` on every mostly
+              // vertical gesture over the scroller — including once the carousel
+              // had run out of cards in that direction — and since this sits in
+              // the middle of a full-height section, that is where the cursor
+              // usually is. The page stopped scrolling until the visitor thought
+              // to move the pointer off it. Mouse users get the arrows below
+              // instead, which is a control they can see.
+              className="scrollbar-hidden flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
             >
-              {PROJECTS.map((project, index) => (
-                <div
-                  key={project.title}
-                  ref={(el) => {
-                    cardRefs.current[index] = el;
-                  }}
-                  role="group"
-                  aria-roledescription="slide"
-                  aria-label={`${index + 1} of ${PROJECTS.length}: ${project.title}`}
-                  // The snap box: laid out, measured, and snapped to, but never
-                  // transformed — see `updateArc`. It carries the projection
-                  // for the one face inside it, and `z-index` orders it against
-                  // the other cards; the arc writes both every frame, along
-                  // with the `perspectiveOrigin` that aims this card's
-                  // vanishing point back at the scroller's centre.
-                  className="relative w-[clamp(260px,30vw,720px)] aspect-video shrink-0 snap-center"
-                  style={{ perspective: PERSPECTIVE }}
-                >
+              {/*
+                No `perspective` or `preserve-3d` anywhere above the cards. Either
+                one here would gather every card into a single 3D rendering
+                context, where painting order is decided by depth sorting the
+                flattened faces cannot take part in — see `BASE_Z_INDEX`. Each
+                card brings its own perspective instead.
+              */}
+              <div
+                ref={trackRef}
+                className="relative flex shrink-0 items-center gap-6 px-[calc(50%-clamp(130px,15vw,360px))]"
+              >
+                {PROJECTS.map((project, index) => (
                   <div
+                    key={project.title}
                     ref={(el) => {
-                      faceRefs.current[index] = el;
+                      cardRefs.current[index] = el;
                     }}
-                    // No standing `will-change` — the hint is applied by
-                    // `syncWillChange` only while the section is on screen.
-                    className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60"
+                    role="group"
+                    aria-roledescription="slide"
+                    aria-label={`${index + 1} of ${PROJECTS.length}: ${project.title}`}
+                    // The snap box: laid out, measured, and snapped to, but never
+                    // transformed — see `updateArc`. It carries the projection
+                    // for the one face inside it, and `z-index` orders it against
+                    // the other cards; the arc writes both every frame, along
+                    // with the `perspectiveOrigin` that aims this card's
+                    // vanishing point back at the scroller's centre.
+                    className="relative w-[clamp(260px,30vw,720px)] aspect-video shrink-0 snap-center"
+                    style={{ perspective: PERSPECTIVE }}
                   >
-                    <Image
-                      ref={(el) => {
-                        imgRefs.current[index] = el;
-                      }}
-                      src={project.image}
-                      alt={project.title}
-                      fill
-                      sizes="(max-width: 768px) 80vw, 720px"
-                      loading="lazy"
-                      decoding="async"
-                      className="object-cover"
-                      draggable={false}
-                      // The radial dissolve re-rasterises the image on every
-                      // distinct `--depth`; the compact build swaps it for
-                      // the opacity ramp on the face and carries no mask.
-                      style={
-                        compact
-                          ? undefined
-                          : {
-                              WebkitMaskImage: IMAGE_MASK,
-                              maskImage: IMAGE_MASK,
-                            }
-                      }
-                    />
-                    {/*
-                    The dust. Same image again, but showing only through the
-                    particle stencil — so every speck is a sample of the
-                    artwork underneath it and carries that pixel's colour,
-                    rather than being a grey fleck laid on top. `background`
-                    rather than a second <img> because nothing here needs a
-                    second decode, an alt text, or a place in the a11y tree.
-                  */}
-                    {hydrated && !compact && (
                     <div
                       ref={(el) => {
-                        dustRefs.current[index] = el;
+                        faceRefs.current[index] = el;
                       }}
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 opacity-0"
-                      style={{
-                        backgroundImage: `url("${project.image}")`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                        // Left unblurred on purpose — the image beneath is
-                        // going soft as it recedes, and specks that stay sharp
-                        // against it are what separate "coming apart" from
-                        // "going out of focus". No saturation lift any more:
-                        // the receding card is being desaturated deliberately,
-                        // and dust that stayed vivid would sit outside that
-                        // lighting rather than inside it.
-                        filter: "none",
-                        WebkitMaskImage: DUST_LAYER_MASK,
-                        maskImage: DUST_LAYER_MASK,
-                        WebkitMaskSize: `${DUST_TILE}px ${DUST_TILE}px, 100% 100%`,
-                        maskSize: `${DUST_TILE}px ${DUST_TILE}px, 100% 100%`,
-                        WebkitMaskRepeat: "repeat, no-repeat",
-                        maskRepeat: "repeat, no-repeat",
-                        // Safari still wants the old keyword for the same op.
-                        WebkitMaskComposite: "source-in",
-                        maskComposite: "intersect",
-                      }}
-                    />
-                    )}
-                    {hydrated && !compact && (
-                    <div
-                      ref={(el) => {
-                        grainRefs.current[index] = el;
-                      }}
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 opacity-0 mix-blend-hard-light"
-                      style={{
-                        backgroundImage: GRAIN_BACKGROUND,
-                        backgroundSize: "180px 180px",
-                        WebkitMaskImage: GRAIN_MASK,
-                        maskImage: GRAIN_MASK,
-                      }}
-                    />
-                    )}
+                      // No standing `will-change` — the hint is applied by
+                      // `syncWillChange` only while the section is on screen.
+                      className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60"
+                    >
+                      <Image
+                        ref={(el) => {
+                          imgRefs.current[index] = el;
+                        }}
+                        src={project.image}
+                        alt={project.title}
+                        fill
+                        sizes="(max-width: 768px) 80vw, 720px"
+                        loading="lazy"
+                        decoding="async"
+                        className="object-cover"
+                        draggable={false}
+                        // The radial dissolve re-rasterises the image on every
+                        // distinct `--depth`; the compact build swaps it for
+                        // the opacity ramp on the face and carries no mask.
+                        style={
+                          compact
+                            ? undefined
+                            : {
+                                WebkitMaskImage: IMAGE_MASK,
+                                maskImage: IMAGE_MASK,
+                              }
+                        }
+                      />
+                      {/*
+                      The dust. Same image again, but showing only through the
+                      particle stencil — so every speck is a sample of the
+                      artwork underneath it and carries that pixel's colour,
+                      rather than being a grey fleck laid on top. `background`
+                      rather than a second <img> because nothing here needs a
+                      second decode, an alt text, or a place in the a11y tree.
+                    */}
+                      {hydrated && !compact && (
+                        <div
+                          ref={(el) => {
+                            dustRefs.current[index] = el;
+                          }}
+                          aria-hidden
+                          className="pointer-events-none absolute inset-0 opacity-0"
+                          style={{
+                            backgroundImage: `url("${project.image}")`,
+                            backgroundSize: "cover",
+                            backgroundPosition: "center",
+                            // Left unblurred on purpose — the image beneath is
+                            // going soft as it recedes, and specks that stay sharp
+                            // against it are what separate "coming apart" from
+                            // "going out of focus". No saturation lift any more:
+                            // the receding card is being desaturated deliberately,
+                            // and dust that stayed vivid would sit outside that
+                            // lighting rather than inside it.
+                            filter: "none",
+                            WebkitMaskImage: DUST_LAYER_MASK,
+                            maskImage: DUST_LAYER_MASK,
+                            WebkitMaskSize: `${DUST_TILE}px ${DUST_TILE}px, 100% 100%`,
+                            maskSize: `${DUST_TILE}px ${DUST_TILE}px, 100% 100%`,
+                            WebkitMaskRepeat: "repeat, no-repeat",
+                            maskRepeat: "repeat, no-repeat",
+                            // Safari still wants the old keyword for the same op.
+                            WebkitMaskComposite: "source-in",
+                            maskComposite: "intersect",
+                          }}
+                        />
+                      )}
+                      {hydrated && !compact && (
+                        <div
+                          ref={(el) => {
+                            grainRefs.current[index] = el;
+                          }}
+                          aria-hidden
+                          className="pointer-events-none absolute inset-0 opacity-0 mix-blend-hard-light"
+                          style={{
+                            backgroundImage: GRAIN_BACKGROUND,
+                            backgroundSize: "180px 180px",
+                            WebkitMaskImage: GRAIN_MASK,
+                            maskImage: GRAIN_MASK,
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
+
+          {/*
+            The arrows are the affordance the carousel was missing entirely.
+            Nothing about the old version said it could be scrolled — it
+            answered only to a wheel gesture the visitor had to guess at, and to
+            nothing at all on a mouse without horizontal scroll. Real <button>s
+            also put it in the tab order for free.
+
+            Hidden from assistive tech: the scroller itself is focusable and
+            documents its own arrow-key handling, so announcing these too would
+            just be a second way to say the same thing.
+          */}
+          <button
+            type="button"
+            onClick={() => stepBy(-1)}
+            disabled={atStart}
+            aria-hidden
+            tabIndex={-1}
+            className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:left-4 md:p-4"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={() => stepBy(1)}
+            disabled={atEnd}
+            aria-hidden
+            tabIndex={-1}
+            className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:right-4 md:p-4"
+          >
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
         </div>
 
         {/*
-          The arrows are the affordance the carousel was missing entirely.
-          Nothing about the old version said it could be scrolled — it
-          answered only to a wheel gesture the visitor had to guess at, and to
-          nothing at all on a mouse without horizontal scroll. Real <button>s
-          also put it in the tab order for free.
-
-          Hidden from assistive tech: the scroller itself is focusable and
-          documents its own arrow-key handling, so announcing these too would
-          just be a second way to say the same thing.
+          One dot per project: the count and the position, which the arc alone
+          cannot convey once a card is rotated far enough to be unreadable. Also
+          the only direct way to reach a specific project rather than stepping
+          past everything in between.
         */}
-        <button
-          type="button"
-          onClick={() => stepBy(-1)}
-          disabled={atStart}
-          aria-hidden
-          tabIndex={-1}
-          className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:left-4 md:p-4"
-        >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={() => stepBy(1)}
-          disabled={atEnd}
-          aria-hidden
-          tabIndex={-1}
-          className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:right-4 md:p-4"
-        >
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
-      </div>
+        <div className="mt-8 flex justify-center gap-3">
+          {PROJECTS.map((project, index) => (
+            <button
+              key={project.title}
+              type="button"
+              onClick={() => scrollToIndex(index)}
+              aria-label={`Show ${project.title}`}
+              aria-current={index === centeredIndex}
+              className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
+                index === centeredIndex
+                  ? "w-8 bg-white"
+                  : "w-2.5 bg-white/30 hover:bg-white/60"
+              }`}
+            />
+          ))}
+        </div>
 
-      {/*
-        One dot per project: the count and the position, which the arc alone
-        cannot convey once a card is rotated far enough to be unreadable. Also
-        the only direct way to reach a specific project rather than stepping
-        past everything in between.
-      */}
-      <div className="mt-8 flex justify-center gap-3">
-        {PROJECTS.map((project, index) => (
-          <button
-            key={project.title}
-            type="button"
-            onClick={() => scrollToIndex(index)}
-            aria-label={`Show ${project.title}`}
-            aria-current={index === centeredIndex}
-            className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
-              index === centeredIndex
-                ? "w-8 bg-white"
-                : "w-2.5 bg-white/30 hover:bg-white/60"
-            }`}
-          />
-        ))}
-      </div>
-
-      {/*
-        The copy swaps as a side effect of scrolling, with no focus change to
-        carry the news — but the visible container is deliberately *not* a
-        live region: it updates on every card the carousel passes, and a
-        screen reader would re-announce a full paragraph per pass. The
-        visually-hidden region below speaks instead, and only once the
-        scroller has settled — see `settledIndex`.
-      */}
-      <div aria-live="polite" className="sr-only">
-        {PROJECTS[settledIndex].title}
-      </div>
-      <div className="text-white flex flex-col max-w-4xl m-auto gap-6 p-12">
-        <WorkDescriptions type={PROJECTS[centeredIndex].title} />
+        {/*
+          The copy swaps as a side effect of scrolling, with no focus change to
+          carry the news — but the visible container is deliberately *not* a
+          live region: it updates on every card the carousel passes, and a
+          screen reader would re-announce a full paragraph per pass. The
+          visually-hidden region below speaks instead, and only once the
+          scroller has settled — see `settledIndex`.
+        */}
+        <div aria-live="polite" className="sr-only">
+          {PROJECTS[settledIndex].title}
+        </div>
+        <div className="text-white flex flex-col max-w-4xl m-auto gap-6 p-12">
+          <WorkDescriptions type={PROJECTS[centeredIndex].title} />
+        </div>
       </div>
     </div>
   );
