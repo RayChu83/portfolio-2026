@@ -81,7 +81,12 @@ export default function Header() {
             I&apos;m Ray
           </span>
         </h1>
-        <h4 className="text-center text-2xl md:text-3xl font-aeonik-regular tracking-tight">
+        {/* `motion-reduce:hidden`: the tilt this line invites is disabled
+            under the preference (useTilt returns before attaching anything),
+            and copy promising an effect that will not run is worse than no
+            copy. A media query, like the swap inside, so the server and
+            client agree. */}
+        <h4 className="text-center text-2xl md:text-3xl font-aeonik-regular tracking-tight motion-reduce:hidden">
           {/* Swapped by media query rather than by feature detection, so the
               server and client render the same markup. */}
           <span className="[@media(hover:none)]:hidden">

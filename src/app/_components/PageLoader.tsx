@@ -75,7 +75,10 @@ export default function PageLoader({ children }: { children: ReactNode }) {
           ready ? "pointer-events-none opacity-0" : "opacity-100"
         }`}
       >
-        <div className="size-10 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-800" />
+        {/* Under reduced motion the spin stops and the accent segment goes,
+            leaving a plain static ring — still a "loading" mark, no longer a
+            perpetual rotation the preference asked not to see. */}
+        <div className="size-10 animate-spin motion-reduce:animate-none rounded-full border-2 border-neutral-200 border-t-neutral-800 motion-reduce:border-t-neutral-200" />
       </div>
     </>
   );

@@ -7,6 +7,7 @@ import Image from "next/image";
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMediaQuery } from "../_hooks/useMediaQuery";
+import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 import WorkDescriptions from "./WorkDescriptions";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
@@ -381,9 +382,7 @@ export default function Work() {
   /** Last `perspective-origin` x written per card, in whole px — same reason. */
   const originValues = useRef<number[]>([]);
 
-  const prefersReducedMotion = useMediaQuery(
-    "(prefers-reduced-motion: reduce)",
-  );
+  const prefersReducedMotion = usePrefersReducedMotion();
   const compact = useMediaQuery(COMPACT);
 
   /**
@@ -477,58 +476,75 @@ export default function Work() {
 
   useGSAP(
     () => {
-      const media = gsap.matchMedia();
+      // Reduced motion: black, permanently, and nothing watching the scroll
+      // that could ever change it.
+      //
+      // The earlier build kept the white-to-black *state* change under the
+      // preference and only dropped the tween that eased between the two, on
+      // the reasoning that a hard cut is not motion. But a whole section
+      // inverting the instant its top passes the middle of the viewport is
+      // the most abrupt version of the effect, not the calmest one — it is
+      // still a full-screen change driven by scroll position, which is the
+      // coupling the preference is asking to be spared, and cutting rather
+      // than fading only removes the part that softened it. The section's own
+      // content is built for the dark ground anyway (white heading, white
+      // copy, dark cards), so black is the state it actually wants; the fade
+      // from white exists to make the transition into it feel like an arrival,
+      // and with no transition there is nothing for the white to be.
+      //
+      // So there is no ScrollTrigger on this branch at all. Not a trigger
+      // whose callbacks happen to be `set` rather than `to` — nothing to
+      // register, refresh on resize, or tear down.
+      //
+      // The `motion-reduce:bg-black` class on the section is what actually
+      // paints it, and this `set` only restates that. The class is there
+      // because the ground has to be right in the server's HTML: this hook
+      // reports `false` until the client mounts, so a build that painted the
+      // black here alone would serve every reduce-motion visitor a section on
+      // the page's white and swap it under them on hydration — a full-screen
+      // flash, which is precisely what the branch exists to avoid. The `set`
+      // then wins over any inline colour the animated branch left behind when
+      // the preference flips mid-session, which the class alone could not.
+      if (prefersReducedMotion) {
+        gsap.set(sectionRef.current, { backgroundColor: BLACK });
+        return;
+      }
 
-      media.add("(prefers-reduced-motion: no-preference)", () => {
-        const toBlack = () =>
-          gsap.to(sectionRef.current, {
-            backgroundColor: BLACK,
-            duration: FADE_DURATION,
-            ease: "power2.out",
-          });
-
-        const toWhite = () =>
-          gsap.to(sectionRef.current, {
-            backgroundColor: WHITE,
-            duration: FADE_DURATION,
-            ease: "power2.out",
-          });
-
-        // No `scrub` here: the trigger fires once each time the section's top
-        // crosses the middle of the viewport, in either direction, and the
-        // fade above plays out on its own clock from there — scrolling
-        // further, stopping, or reversing mid-fade never rewinds or resumes
-        // it partway.
-        const trigger = ScrollTrigger.create({
-          trigger: sectionRef.current,
-          start: "top center",
-          onEnter: toBlack,
-          onLeaveBack: toWhite,
+      const toBlack = () =>
+        gsap.to(sectionRef.current, {
+          backgroundColor: BLACK,
+          duration: FADE_DURATION,
+          ease: "power2.out",
         });
 
-        return () => trigger.kill();
-      });
-
-      media.add("(prefers-reduced-motion: reduce)", () => {
-        // No animated fade, but the state change still has to land somewhere
-        // — a hard cut at the same line the eased version fades across.
-        gsap.set(sectionRef.current, { backgroundColor: WHITE });
-
-        const trigger = ScrollTrigger.create({
-          trigger: sectionRef.current,
-          start: "top center",
-          onEnter: () =>
-            gsap.set(sectionRef.current, { backgroundColor: BLACK }),
-          onLeaveBack: () =>
-            gsap.set(sectionRef.current, { backgroundColor: WHITE }),
+      const toWhite = () =>
+        gsap.to(sectionRef.current, {
+          backgroundColor: WHITE,
+          duration: FADE_DURATION,
+          ease: "power2.out",
         });
 
-        return () => trigger.kill();
+      // No `scrub` here: the trigger fires once each time the section's top
+      // crosses the middle of the viewport, in either direction, and the
+      // fade above plays out on its own clock from there — scrolling
+      // further, stopping, or reversing mid-fade never rewinds or resumes
+      // it partway.
+      const trigger = ScrollTrigger.create({
+        trigger: sectionRef.current,
+        start: "top center",
+        onEnter: toBlack,
+        onLeaveBack: toWhite,
       });
 
-      return () => media.revert();
+      return () => trigger.kill();
     },
-    { scope: sectionRef },
+    // The preference is read as a plain boolean rather than through
+    // `gsap.matchMedia`, because the two branches are no longer two versions
+    // of one behaviour — one of them is the absence of the behaviour. A
+    // dependency re-runs the effect on a preference change and `useGSAP`'s
+    // own context revert undoes whichever branch was standing, which is all
+    // `matchMedia` was buying here.
+    { scope: sectionRef, dependencies: [prefersReducedMotion] },
   );
 
   useGSAP(
@@ -992,7 +1008,11 @@ export default function Work() {
   const atEnd = centeredIndex === PROJECTS.length - 1;
 
   return (
-    <div ref={sectionRef} className="min-h-dvh py-64">
+    // `motion-reduce:bg-black` is the reduce-motion ground, stated in the
+    // markup so it is already correct on the server's HTML — see the effect
+    // above. It is inert otherwise: the animated branch writes an inline
+    // `background-color`, which outranks a class.
+    <div ref={sectionRef} className="min-h-dvh py-64 motion-reduce:bg-black">
       <header>
         <h1 className="text-white text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl tracking-tight font-aeonik-regular text-center">
           Products I&apos;ve <br /> helped ship
