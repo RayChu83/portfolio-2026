@@ -82,8 +82,8 @@ function TechStack({ type }: { type: string }) {
       className="flex flex-wrap items-center gap-5 my-2"
     >
       {technologies.map(({ name, Icon }) => (
-        <li key={name} className="text-white/50 hover:text-white/75">
-          <Icon aria-hidden size="24" />
+        <li key={name} className="text-white/40 hover:text-white/60">
+          <Icon aria-hidden size="20" />
           <span className="sr-only">{name}</span>
         </li>
       ))}

@@ -5,7 +5,19 @@ import DeferredWork from "./_components/DeferredWork";
 export default function Home() {
   return (
     <>
-      <div className="min-h-dvh flex flex-col">
+      {/* `relative z-10` is the hero's standing claim on the layer above
+          whatever follows it, and it exists for one element: the animated
+          build's "From New York City", which is `absolute` inside the pinned
+          stage and deliberately hangs past the stage's own bottom edge (see
+          PLACE_BOTTOM in HeroAnimated). Everything below reserves flow space
+          for that overhang, so the two should never meet — but "should never
+          meet" is a measurement, and a measurement can be stale for a frame on
+          a phone whose address bar is still moving. This says what the right
+          answer is when they do meet, rather than leaving it to the painting
+          order that falls out of how ScrollTrigger happens to pin (`fixed` on
+          a desktop, `transform` on a touch device) — the caption is hero, the
+          section under it is ground, and the ground never comes up over it. */}
+      <div className="relative z-10 min-h-dvh flex flex-col">
         <Header />
         <HeroHeadshot />
       </div>

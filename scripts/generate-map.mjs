@@ -8,7 +8,7 @@
  *
  * Each density is serialised as a single SVG path (one circle subpath per
  * dot, radius baked in) rather than thousands of <circle> elements, so the
- * client renders one DOM node instead of 1,600–3,650.
+ * client renders one DOM node instead of 3,200–8,600.
  *
  * Run with: node scripts/generate-map.mjs
  */
@@ -17,8 +17,16 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createMap } from "svg-dotted-map";
 
-const WIDTH = 150;
-const HEIGHT = 75;
+/**
+ * The coordinate space the map is drawn in. Nothing on screen is measured in
+ * these units — the SVG's viewBox is taken from them and the frame is held to
+ * 2:1 — but they cap how many dots there can be: `svg-dotted-map` dedupes its
+ * samples on `Math.round`ed coordinates, so a 150x75 space plateaus at ~4,300
+ * land dots no matter how high `mapSamples` goes. Raising the space is what
+ * lets the grid get finer; `mapSamples` alone cannot.
+ */
+const WIDTH = 240;
+const HEIGHT = 120;
 const NEW_YORK = { lat: 40.7128, lng: -74.006 };
 
 /** Mirrors the stagger pass the old runtime component performed. */
@@ -47,11 +55,42 @@ function staggerHelpers(points) {
 
 const round = (n) => Math.round(n * 100) / 100;
 
-/** One circle as a pair of arc subpath segments. */
-const circlePath = (x, y, r) =>
-  `M${round(x - r)} ${round(y)}` +
-  `a${r} ${r} 0 1 0 ${2 * r} 0` +
-  `a${r} ${r} 0 1 0 ${-2 * r} 0`;
+/**
+ * One circle as a pair of arc subpath segments, minus every character SVG's
+ * path grammar lets us drop: `.2` for `0.2`, no separator between a number and
+ * a following `.` or `-`. At ~8,600 dots the difference is tens of kilobytes.
+ */
+const trim = (n) => String(round(n)).replace(/^(-?)0\./, "$1.");
+
+/** Two numbers, with a separator only where one would otherwise run into the next. */
+const pair = (a, b) => `${a}${b.startsWith(".") || b.startsWith("-") ? "" : " "}${b}`;
+
+const arcs = (r) => {
+  const rr = pair(trim(r), trim(r));
+  return `a${rr} 0 1 0 ${trim(2 * r)} 0a${rr} 0 1 0${trim(-2 * r)} 0`;
+};
+
+/**
+ * The dots, chained into one path. Each arc pair closes back on the point it
+ * started from, so every dot after the first is reached by a relative `m` from
+ * the previous one rather than an absolute `M` — shorter, and the deltas are
+ * lattice steps that repeat, which is what gzip wants to see.
+ */
+function dotsPath(points, r) {
+  const a = arcs(r);
+  let out = "";
+  let px = 0;
+  let py = 0;
+  points.forEach(({ x, y }, i) => {
+    const cx = x - r;
+    if (i === 0) out += `M${trim(cx)} ${trim(y)}`;
+    else out += `m${trim(cx - px)} ${trim(y - py)}`;
+    out += a;
+    px = cx;
+    py = y;
+  });
+  return out;
+}
 
 function build(mapSamples, dotRadius) {
   const { points, addMarkers } = createMap({
@@ -63,9 +102,10 @@ function build(mapSamples, dotRadius) {
   const offsetFor = (y) =>
     (yToRowIndex.get(y) ?? 0) % 2 === 1 ? xStep / 2 : 0;
 
-  const path = points
-    .map((p) => circlePath(p.x + offsetFor(p.y), p.y, dotRadius))
-    .join("");
+  const path = dotsPath(
+    points.map((p) => ({ x: p.x + offsetFor(p.y), y: p.y })),
+    dotRadius,
+  );
 
   const [marker] = addMarkers([NEW_YORK]);
   const markerX = marker.x + offsetFor(marker.y);
@@ -79,14 +119,15 @@ function build(mapSamples, dotRadius) {
   };
 }
 
-// Sample counts / radii match the MAP_SAMPLES(_COMPACT) and
-// MAP_DOT_RADIUS(_COMPACT) constants that used to live in HeroHeadshot.tsx.
 // One file per density, so the client dynamic-imports only the one the
-// viewport needs instead of bundling both.
+// viewport needs instead of bundling both. The radii are a little under half
+// the grid step: at the size the map is actually drawn that is a dot of about
+// the same couple of pixels it has always been, on a grid twice as fine, which
+// is what makes coastlines legible as coastlines rather than as a scatter.
 const dir = join(dirname(fileURLToPath(import.meta.url)), "../src/app/_components");
 for (const [name, samples, radius] of [
-  ["full", 10000, 0.15],
-  ["compact", 4500, 0.22],
+  ["full", 24000, 0.2],
+  ["compact", 9000, 0.34],
 ]) {
   const data = { width: WIDTH, height: HEIGHT, ...build(samples, radius) };
   const out = join(dir, `map-data.${name}.json`);

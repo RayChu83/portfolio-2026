@@ -1088,7 +1088,17 @@ export default function Work() {
     // markup so it is already correct on the server's HTML — see the effect
     // above. It is inert otherwise: the animated branch writes an inline
     // `background-color`, which outranks a class.
-    <div ref={sectionRef} className="min-h-dvh py-64 motion-reduce:bg-black">
+    <div
+      ref={sectionRef}
+      // `relative z-0` puts the whole section — its ground included — on a
+      // layer below the hero above it, which is what keeps the hero's place
+      // caption on top of this black wherever the two overlap. See the note in
+      // `page.tsx`; nothing in here has any business painting over the hero, so
+      // scoping the carousel's own stacking (the cards' BASE_Z_INDEX, the
+      // arrows' `z-10`) inside this context costs nothing — those values only
+      // ever order these elements against each other.
+      className="relative z-0 min-h-dvh py-64 motion-reduce:bg-black"
+    >
       {/* Everything the section draws, wrapped as one element so it can
           fade with the ground behind it — see `contentRef`.
 

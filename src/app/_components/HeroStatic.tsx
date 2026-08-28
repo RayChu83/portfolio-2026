@@ -216,7 +216,7 @@ export default function HeroStatic({
           >
             {mapData && (
               <>
-                {/* Decorative: a screen reader has no use for five thousand dots,
+                {/* Decorative: a screen reader has no use for eight thousand dots,
                     and the caption below says what the map is for. */}
                 <svg
                   aria-hidden

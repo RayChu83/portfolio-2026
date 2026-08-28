@@ -64,9 +64,14 @@ const SWING = { rotateX: -8, rotateY: 12 };
 const ALWAYS = "all";
 
 /**
- * How long the headshot stays pinned, as a share of the viewport height. A
- * percentage in a ScrollTrigger `end` measures against the scroller, so this
- * is 400dvh of scrolling spent with the image held still.
+ * How long the headshot stays pinned, as a multiple of the viewport height —
+ * so this is 400dvh of scrolling spent with the image held still.
+ *
+ * A number rather than the `"+=400%"` string a ScrollTrigger `end` also
+ * accepts, because the pin is no longer only this: the header's greeting is
+ * still on screen when the pin engages, and HEADER_CLEAR buys the scrolling it
+ * takes to leave. The trigger's `end` is a function that adds the two, which
+ * needs both in px.
  *
  * It is also the only pace control the reveal has. Every constant below is a
  * share of this pin rather than a number of seconds, and the scrub stretches
@@ -75,7 +80,7 @@ const ALWAYS = "all";
  * is what buys each beat more scrolling, and it slows the whole sequence by the
  * same factor while leaving every relationship inside it exactly as authored.
  */
-const PIN_LENGTH = "+=400%";
+const PIN_LENGTH = 4;
 
 /**
  * The pin, shortened for those visitors.
@@ -90,7 +95,7 @@ const PIN_LENGTH = "+=400%";
  * the pin rather than a number of seconds, so a shorter trigger runs the same
  * sequence in the same order and simply runs it faster — see PIN_LENGTH.
  */
-const PIN_LENGTH_COMPACT = "+=150%";
+const PIN_LENGTH_COMPACT = 1.5;
 
 /**
  * Where each label's wave of glyphs begins, in timeline units — the scrubbed
@@ -214,8 +219,22 @@ const PLACE_START = LABELS_EXIT_START + LABELS_EXIT;
  * while the stage is pinned and centred, which is the whole of the time this
  * label is on screen — before the pin the label has not been written yet, and
  * after it the stage is scrolling away and carrying it along.
+ *
+ * It is also only ever the *opening* value. `fitStageToLabel` overwrites it
+ * with `--place-hang`, the same quantity read off the live DOM in px, for the
+ * whole of the time the label is on screen — because a live `dvh` term keeps
+ * moving on a phone while the pinned stage it is subtracted from does not.
+ * See that handler. What survives here is what the server renders and what a
+ * frame before the timeline's first tick gets, where measuring nothing is the
+ * point.
  */
 const PLACE_BOTTOM = "calc((100% - 100dvh) / 2)";
+
+/**
+ * The same offset as PLACE_BOTTOM once the effect has measured it — in px, so
+ * it cannot drift with the viewport — falling back to the formula until then.
+ */
+const PLACE_BOTTOM_STYLE = `var(--place-hang, ${PLACE_BOTTOM})`;
 
 /**
  * The rule under "New York City": its weight, and where it sits inside the
@@ -555,6 +574,30 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
         // `autoSplit` tears the labels' tweens out and rebuilds them below.
         const reveal = gsap.timeline().to({}, { duration: 1 }, 0);
 
+        // What the scrub actually drives: the reveal above, held at its first
+        // frame until the header's greeting has left the screen.
+        //
+        // The pin engages with half the header still on it — see `start` — so
+        // for the first stretch of the hold the words "Hey there, I'm Ray" are
+        // sitting directly over the corner label that is busy writing itself
+        // in. The two read as one pile of type rather than as a handover.
+        //
+        // A hold in front of the timeline rather than a later pin: the pin is
+        // what centres the stage, and the stage is only centred in the viewport
+        // at the one scroll position `center center` names. Waiting any longer
+        // to pin would freeze the headshot high in the frame and take the
+        // PLACE_BOTTOM geometry with it. Pinning on time and simply not moving
+        // yet costs nothing but scrolling, and the pin's `end` below buys that
+        // scrolling back so the reveal keeps the full PIN_LENGTH it was paced
+        // for.
+        //
+        // Nested rather than authored as a leading empty tween, because the
+        // length of the hold is measured and re-measured — see
+        // `syncHeaderClear` — and a child's start time can be moved after the
+        // fact, whereas the tweens sequenced after an empty one cannot.
+        const master = gsap.timeline();
+        master.add(reveal, 0);
+
         // The photograph dollies up to the picture plane, pulls into focus and
         // is wiped in from below, all across exactly the span the type takes.
         //
@@ -867,31 +910,131 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
         // and therefore exactly the element the paragraph above explains the
         // margin must not go on. The reserved space was landing on the spacer,
         // where it shrinks the stage instead of following it.
+        //
+        // The hang itself is frozen into px here as well, and that is the other
+        // half of the same problem. PLACE_BOTTOM is a live expression — its
+        // `100dvh` term keeps tracking the viewport — while everything it is
+        // measured against does not: a pinned element is given an explicit
+        // height by ScrollTrigger, and `ignoreMobileResize` (deliberately, see
+        // the top of this file) suppresses the refresh that would re-measure
+        // it. So on a phone, the moment the address bar slides away, `100dvh`
+        // grows by the bar's height and the label drops half of that further
+        // below a stage whose height has not moved and a margin that was
+        // reserved for where it used to be. It lands in the section below,
+        // where its own black type sits on that section's black ground and
+        // simply disappears — the whole of the reported bug.
+        //
+        // Writing the same quantity — the gap between the stage's box and the
+        // bottom of the screen, which is `headerClear()` exactly — as a px
+        // custom property means the hang and the space reserved for it are two
+        // readings of one measurement taken at one instant, and neither can
+        // drift away from the other between refreshes. The label then holds
+        // still relative to the stage it is pinned with, which is what it was
+        // always meant to do; a mobile address bar can move the bottom of the
+        // screen out from under it by half a bar's height without ever moving
+        // it into the section below.
         const fitStageToLabel = () => {
           const stage = stageRef.current;
           const place = placeRef.current;
           if (!stage || !place || !wrapper) return;
 
-          const overflow =
-            place.getBoundingClientRect().bottom -
-            stage.getBoundingClientRect().bottom;
+          const stageBottom = stage.getBoundingClientRect().bottom;
+          // Negative: the label hangs *below* the stage's own bottom edge.
+          place.style.setProperty("--place-hang", `${-headerClear()}px`);
+
+          const overflow = place.getBoundingClientRect().bottom - stageBottom;
           wrapper.style.marginBottom = `${Math.max(0, overflow)}px`;
         };
+
+        // How much scrolling is left, at the moment the pin engages, before the
+        // header has gone entirely — the hold in front of the timeline above,
+        // in px.
+        //
+        // It is the gap between the top of the screen and the top of the
+        // pinned stage, which is the same quantity PLACE_BOTTOM works in and
+        // for the same reason: the pin holds the stage centred, so with a stage
+        // of S in a viewport of V there is exactly (V - S) / 2 above it. The
+        // header's bottom edge is parked on the stage's top edge, so that gap
+        // is precisely the distance it still has to travel.
+        //
+        // Measured rather than taken as half the header's height, which is the
+        // same number only while the header and the stage add up to exactly one
+        // viewport. Reading it off the stage makes it true whatever the header
+        // grows into.
+        //
+        // `height` rather than either edge of the rect: a pinned element is
+        // held still by a transform, which moves its box without resizing it,
+        // so this is safe to read at any point in the scrub.
+        const headerClear = () => {
+          const stage = stageRef.current;
+          if (!stage) return 0;
+
+          const gap =
+            (window.innerHeight - stage.getBoundingClientRect().height) / 2;
+          return Math.max(0, gap);
+        };
+
+        // The pin's own length, without the hold — the span the reveal is paced
+        // against, and the px that one timeline unit is worth.
+        const pinLength = () =>
+          (compact ? PIN_LENGTH_COMPACT : PIN_LENGTH) * window.innerHeight;
+
+        // Puts the hold back in step with the two measurements it is made of.
+        //
+        // Both move independently: the pin is a multiple of the viewport and
+        // the gap above the stage is whatever the header's type happens to
+        // occupy, so a resize — or a font landing, or a breakpoint crossing —
+        // changes their ratio and not just their scale. The trigger's `end`
+        // re-reads both on every refresh, and this keeps the timeline's own
+        // split between hold and reveal reading the same numbers.
+        //
+        // `startTime` on the nested child, in the master's units, where the
+        // reveal is exactly 1 long and so one unit is `pinLength()` px. Moving
+        // it re-derives the master's duration, which is all the scrub needs.
+        //
+        // `refreshInit` rather than `refresh`: it fires before any trigger has
+        // measured itself, so the timeline is already the right shape by the
+        // time the scrub is applied at the end of the same pass.
+        const syncHeaderClear = () => {
+          reveal.startTime(headerClear() / pinLength());
+        };
+
+        ScrollTrigger.addEventListener("refreshInit", syncHeaderClear);
+        syncHeaderClear();
 
         // Hung off the same refresh event `invalidateOnRefresh` below relies
         // on, so a resize or a font load that changes the label's height
         // re-measures the reserved space along with everything else the
         // refresh recomputes.
+        //
+        // Registered here rather than beside its own definition because it
+        // reads `headerClear`, and the first call has to happen after that
+        // `const` is initialised.
         ScrollTrigger.addEventListener("refresh", fitStageToLabel);
         fitStageToLabel();
+
+        // A font landing re-wraps the label and re-splits it, which changes its
+        // height — and that is not a resize, so no refresh is guaranteed to
+        // follow it. Measuring again once the faces are in covers the gap.
+        document.fonts?.ready.then(fitStageToLabel);
 
         const pin = ScrollTrigger.create({
           trigger: stageRef.current,
           // The headshot starts below the header rather than centred, so the
           // pin waits until scrolling has carried it to the middle of the
-          // viewport — which happens once half the header has gone.
+          // viewport — which happens once half the header has gone. The rest of
+          // the header leaves during the hold at the top of the timeline — see
+          // `headerClear`.
           start: "center center",
-          end: compact ? PIN_LENGTH_COMPACT : PIN_LENGTH,
+          // The reveal's own length plus the hold in front of it, so buying the
+          // header its exit costs the reveal nothing: every beat inside it
+          // still gets exactly the share of PIN_LENGTH it was authored with.
+          //
+          // A function so both halves are re-read on every refresh, alongside
+          // `invalidateOnRefresh` below — a rotated phone changes the viewport
+          // the pin is a multiple of and the space the header takes, and they
+          // do not change by the same factor.
+          end: () => `+=${pinLength() + headerClear()}`,
           pin: true,
           // Leaves a spacer the height of the pin, so everything below simply
           // carries on in normal flow once the hold is over.
@@ -908,7 +1051,7 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
           // step with the headshot they belong to, and pinning moves the
           // trigger element in a way a separate ScrollTrigger would have to
           // measure around.
-          animation: reveal,
+          animation: master,
           // Ties progress to scroll position instead of playing on entry, which
           // is what lets scrolling back up run the reveal in reverse.
           scrub: true,
@@ -995,6 +1138,7 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
         // `autoSplit` registered. These put the original text back.
         return () => {
           ScrollTrigger.removeEventListener("refresh", fitStageToLabel);
+          ScrollTrigger.removeEventListener("refreshInit", syncHeaderClear);
           wrapper?.style.removeProperty("margin-bottom");
           splits.forEach((split) => split.revert());
         };
@@ -1083,7 +1227,7 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
 
             Decorative: the label the map exists to deliver is the headshot's
             own alt text plus the copy around it, and a screen reader has no
-            use for five thousand dots. */}
+            use for eight thousand dots. */}
         <div
           aria-hidden
           className="absolute inset-0 overflow-hidden pointer-events-none"
@@ -1190,7 +1334,7 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
         <p
           ref={placeRef}
           className="absolute left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible text-neutral-600"
-          style={{ bottom: PLACE_BOTTOM }}
+          style={{ bottom: PLACE_BOTTOM_STYLE }}
         >
           From{" "}
           <span className="cursor-pointer text-black font-aeonik-medium">
