@@ -75,6 +75,17 @@ const arcs = (r) => {
  * started from, so every dot after the first is reached by a relative `m` from
  * the previous one rather than an absolute `M` — shorter, and the deltas are
  * lattice steps that repeat, which is what gzip wants to see.
+ *
+ * The pen is tracked at its *rounded* position, and each hop is the difference
+ * between where the next dot should be and where the pen actually is — not
+ * between the two ideal positions. Under a relative encoding those are not the
+ * same thing, and the difference is the whole ballgame: a dot's position is the
+ * sum of every delta before it, so rounding each ideal step on its own leaves
+ * the same small error in every hop and the sum walks away. The grid step here
+ * is 1.0925, which written to two places is 1.09 — a twentieth of a percent per
+ * dot, and 8% of the map's width by the last of eight thousand. Differencing
+ * against the rounded pen instead means each dot carries at most half a
+ * rounding unit of error and none of it is inherited. See `verify`.
  */
 function dotsPath(points, r) {
   const a = arcs(r);
@@ -82,14 +93,67 @@ function dotsPath(points, r) {
   let px = 0;
   let py = 0;
   points.forEach(({ x, y }, i) => {
-    const cx = x - r;
-    if (i === 0) out += `M${trim(cx)} ${trim(y)}`;
-    else out += `m${trim(cx - px)} ${trim(y - py)}`;
+    // The position actually emitted, at output precision — what the pen will
+    // be at afterwards, and so what the next hop has to be measured from.
+    const cx = round(x - r);
+    const cy = round(y);
+    if (i === 0) out += `M${trim(cx)} ${trim(cy)}`;
+    else out += `m${trim(cx - px)} ${trim(cy - py)}`;
     out += a;
     px = cx;
-    py = y;
+    py = cy;
   });
   return out;
+}
+
+/**
+ * Walks the emitted path back into points and checks every one against the dot
+ * it was meant to be, to a tolerance of one rounding unit.
+ *
+ * Here because the bug this catches is invisible downstream: a path whose dots
+ * have drifted still parses, still fills, and still reads as a world map — each
+ * row stays internally consistent and only slides — so nothing between here and
+ * the browser can tell that the coastlines no longer agree with the marker that
+ * is supposed to sit on one. The output is committed, so the check belongs at
+ * the point the file is written rather than in anything that reads it.
+ */
+function verify(path, points, r) {
+  const decoded = [];
+  let x = 0;
+  let y = 0;
+  for (const [, cmd, dx, dy] of path.matchAll(
+    /([Mm])(-?[\d.]+) (-?[\d.]+)/g,
+  )) {
+    if (cmd === "M") {
+      x = Number(dx);
+      y = Number(dy);
+    } else {
+      x += Number(dx);
+      y += Number(dy);
+    }
+    decoded.push([x + r, y]);
+  }
+
+  if (decoded.length !== points.length) {
+    throw new Error(
+      `path has ${decoded.length} dots, expected ${points.length}`,
+    );
+  }
+
+  const tolerance = 0.01;
+  let worst = 0;
+  decoded.forEach(([dx, dy], i) => {
+    worst = Math.max(worst, Math.abs(dx - points[i].x), Math.abs(dy - points[i].y));
+  });
+
+  if (worst > tolerance) {
+    throw new Error(
+      `dots drifted up to ${worst.toFixed(3)} units from their true positions ` +
+        `(tolerance ${tolerance}) — the path encoding is accumulating error`,
+    );
+  }
+
+  return worst;
 }
 
 function build(mapSamples, dotRadius) {
@@ -102,16 +166,16 @@ function build(mapSamples, dotRadius) {
   const offsetFor = (y) =>
     (yToRowIndex.get(y) ?? 0) % 2 === 1 ? xStep / 2 : 0;
 
-  const path = dotsPath(
-    points.map((p) => ({ x: p.x + offsetFor(p.y), y: p.y })),
-    dotRadius,
-  );
+  const staggered = points.map((p) => ({ x: p.x + offsetFor(p.y), y: p.y }));
+  const path = dotsPath(staggered, dotRadius);
+  const drift = verify(path, staggered, dotRadius);
 
   const [marker] = addMarkers([NEW_YORK]);
   const markerX = marker.x + offsetFor(marker.y);
 
   return {
     path,
+    drift,
     // New York's position as a fraction of the 2:1 frame — what the hero's
     // flight path and transform origin need. Computed here so the client
     // never has to measure the SVG.
@@ -129,8 +193,11 @@ for (const [name, samples, radius] of [
   ["full", 24000, 0.2],
   ["compact", 9000, 0.34],
 ]) {
-  const data = { width: WIDTH, height: HEIGHT, ...build(samples, radius) };
+  const { drift, ...data } = { width: WIDTH, height: HEIGHT, ...build(samples, radius) };
   const out = join(dir, `map-data.${name}.json`);
   writeFileSync(out, JSON.stringify(data));
-  console.log(`wrote ${out}: path ${data.path.length} chars`);
+  console.log(
+    `wrote ${out}: path ${data.path.length} chars, ` +
+      `worst dot off by ${drift.toFixed(4)} of ${WIDTH} units`,
+  );
 }

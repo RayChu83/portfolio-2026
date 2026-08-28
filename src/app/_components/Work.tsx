@@ -1097,7 +1097,7 @@ export default function Work() {
       // scoping the carousel's own stacking (the cards' BASE_Z_INDEX, the
       // arrows' `z-10`) inside this context costs nothing — those values only
       // ever order these elements against each other.
-      className="relative z-0 min-h-dvh py-64 motion-reduce:bg-black"
+      className="relative z-0 min-h-dvh py-64 motion-reduce:bg-black rounded-b-[4rem]"
     >
       {/* Everything the section draws, wrapped as one element so it can
           fade with the ground behind it — see `contentRef`.
