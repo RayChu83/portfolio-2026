@@ -75,7 +75,7 @@ export default function Header() {
         <p className="text-center text-xl mb-4 text-neutral-700">
           Software Engineer • NYC
         </p>
-        <h1 className="text-center font-aeonik-regular tracking-tight mb-8">
+        <h1 className="text-center font-aeonik-regular tracking-tighter mb-8">
           <span className="text-neutral-600 text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
             Hey there,
           </span>

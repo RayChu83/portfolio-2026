@@ -2,6 +2,7 @@ import Header from "./_components/Header";
 import HeroHeadshot from "./_components/HeroHeadshot";
 import DeferredWork from "./_components/DeferredWork";
 import SocialLinks from "./_components/SocialLinks";
+import Footer from "./_components/Footer";
 
 export default function Home() {
   return (
@@ -24,11 +25,22 @@ export default function Home() {
           order that falls out of how ScrollTrigger happens to pin (`fixed` on
           a desktop, `transform` on a touch device) — the caption is hero, the
           section under it is ground, and the ground never comes up over it. */}
-      <div className="relative z-10 min-h-dvh flex flex-col">
-        <Header />
-        <HeroHeadshot />
+      {/* The page proper, as one opaque layer above the footer.
+          `Footer` is `sticky bottom-0`, which means its box is parked against
+          the bottom of the screen for the whole of the scroll it takes to
+          uncover it — so what keeps it hidden until then is not position but
+          paint order, and that is this wrapper's only job. `z-10` puts the
+          page above it and `bg-white` stops it showing through the gaps
+          between sections; take either away and the footer is visible through
+          the hero from the first frame. */}
+      <div className="relative z-10 bg-white">
+        <div className="relative z-10 min-h-dvh flex flex-col">
+          <Header />
+          <HeroHeadshot />
+        </div>
+        <DeferredWork />
       </div>
-      <DeferredWork />
+      <Footer />
     </>
   );
 }
