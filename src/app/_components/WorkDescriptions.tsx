@@ -96,7 +96,7 @@ function DescriptionContent({ type }: { type: string }) {
     case "Unlevered":
       return (
         <header className="flex flex-col gap-4">
-          <h1 className="text-4xl text-white font-aeonik-regular">Unlevered</h1>
+          <h3 className="text-4xl text-white font-aeonik-regular">Unlevered</h3>
           <p className="text-white/60 text-xl font-aeonik-regular">
             I previously worked as a{" "}
             <span className="text-white/80! font-aeonik-medium!">
@@ -119,7 +119,7 @@ function DescriptionContent({ type }: { type: string }) {
     case "Blitz":
       return (
         <header className="flex flex-col gap-4">
-          <h1 className="text-4xl text-white font-aeonik-regular">Blitz</h1>
+          <h3 className="text-4xl text-white font-aeonik-regular">Blitz</h3>
           <p className="text-white/60 text-xl font-aeonik-regular">
             I&apos;m currently working here as a{" "}
             <span className="text-white/80! font-aeonik-medium!">
@@ -141,9 +141,9 @@ function DescriptionContent({ type }: { type: string }) {
     case "Syllabus to Calendar":
       return (
         <header className="flex flex-col gap-4">
-          <h1 className="text-4xl text-white font-aeonik-regular">
+          <h3 className="text-4xl text-white font-aeonik-regular">
             Syllabus to Calendar
-          </h1>
+          </h3>
           <p className="text-white/60 text-xl font-aeonik-regular">
             Personal project of mine which parses college syllabus PDF files to
             extract deadlines and events which automatically synced to my Google

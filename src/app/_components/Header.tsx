@@ -89,7 +89,13 @@ export default function Header() {
             and copy promising an effect that will not run is worse than no
             copy. A media query, like the swap inside, so the server and
             client agree. */}
-        <h4 className="text-center text-2xl md:text-3xl font-aeonik-regular tracking-tight motion-reduce:hidden">
+        {/* A `<p>`, not a heading. It is sized like one and sits under the
+            name like one, but it heads nothing — it is an instruction, and
+            marking it up as `<h4>` both lied about the document outline and
+            skipped two levels down from the `<h1>` directly above it, which
+            is the one thing a screen reader's heading list is guaranteed to
+            read out as a mistake. */}
+        <p className="text-center text-2xl md:text-3xl font-aeonik-regular tracking-tight motion-reduce:hidden">
           {/* Swapped by media query rather than by feature detection, so the
               server and client render the same markup. */}
           <span className="[@media(hover:none)]:hidden">
@@ -98,7 +104,7 @@ export default function Header() {
           <span className="hidden [@media(hover:none)]:inline">
             Try to tilt your device
           </span>
-        </h4>
+        </p>
       </div>
     </header>
   );

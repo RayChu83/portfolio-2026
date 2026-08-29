@@ -1115,9 +1115,9 @@ export default function Work() {
           <p className="text-white text-center text-2xl mb-4 opacity-60">
             Internships + Projects
           </p>
-          <h1 className="text-white text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl tracking-tight font-aeonik-regular text-center">
+          <h2 className="text-white text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl tracking-tight font-aeonik-regular text-center">
             Products I&apos;ve <br /> helped ship
-          </h1>
+          </h2>
         </header>
 
         <div
