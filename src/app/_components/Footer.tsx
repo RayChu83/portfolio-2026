@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { FaArrowUp } from "react-icons/fa6";
 import { Confetti, type ConfettiRef } from "@/components/ui/confetti";
+import { DEVICE_HINT_HEADER, deviceHint } from "@/lib/device-hint";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
@@ -163,7 +164,15 @@ export default function Footer() {
     if (hasRequestedVisitorCount) return;
     hasRequestedVisitorCount = true;
 
-    fetch("/api/visitor-count")
+    // The hint describes the machine, not this browser — it is what lets the
+    // route tell two devices on one network apart while still recognising the
+    // same device in a second browser. Computed here rather than server-side
+    // because none of it is visible from a request header; see
+    // `lib/device-hint`. Safe to read now: this runs in an effect, so there is
+    // a `window` to measure.
+    fetch("/api/visitor-count", {
+      headers: { [DEVICE_HINT_HEADER]: deviceHint() },
+    })
       .then((response) => {
         if (!response.ok) throw new Error(`status ${response.status}`);
         return response.json() as Promise<{ count: number }>;
