@@ -4,7 +4,7 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Link from "next/link";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FaArrowUp } from "react-icons/fa6";
 import { Confetti, type ConfettiRef } from "@/components/ui/confetti";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
@@ -12,19 +12,69 @@ import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
 /**
- * Which visitor this one is.
+ * `null` until `/api/visitor-count` answers, then fixed for the life of the
+ * component — the route increments on the visitor's *first* request of the
+ * page, so asking it again later would only ever repeat the same number.
  *
- * A constant, and deliberately so for now: a number that means anything has to
- * be counted somewhere both visitors can see — a KV store or a route handler —
- * and nothing on this page has a server to ask. Rendered into the markup at its
- * final value rather than at zero, so the sentence is true before any script
- * runs and stays true if none ever does; the count-up below only replays the
- * arrival for people who scroll to it.
+ * The endpoint, not a constant, is what makes the sentence true: the count
+ * lives in Upstash Redis and every visitor's browser increments it exactly
+ * once, via a dedupe cookie the route sets — see `route.ts`. Fetched from
+ * the client rather than read here on the server because the increment is a
+ * mutation gated on *who is asking*, and Next only allows setting that
+ * cookie from a Route Handler or Server Function, never while rendering a
+ * Server Component.
  */
-const VISITOR = 7;
+type VisitorCount = number | null;
+
+/**
+ * True once this page load has already asked the endpoint for a count.
+ *
+ * Module scope, not a ref. The endpoint's `GET` is not idempotent — it
+ * increments Redis for a visitor's first request — and Strict Mode
+ * deliberately mounts every effect twice in development specifically to
+ * surface exactly that kind of bug (confirmed here: without this guard, one
+ * page load fired two real requests, and Redis counted the same visitor
+ * twice). A `useRef` guard does not fix it either: the ref lives on the same
+ * fiber as the effect, so the first invocation's own cleanup still runs
+ * before the second — and if that cleanup also marks the eventual response
+ * stale, the one real request's result gets silently dropped instead of
+ * reaching state. A module-level flag sidesteps both problems: it survives
+ * the remount without being tied to any effect's cleanup, and it resets on
+ * every real page load, which is exactly how often a visitor should count.
+ */
+let hasRequestedVisitorCount = false;
 
 /** Padded to a fixed width so the digits never reflow the headline mid-count. */
 const format = (n: number) => String(n).padStart(3, "0");
+
+/**
+ * The English ordinal suffix for a whole number.
+ *
+ * Decided by the last two digits, not the last one: 11, 12 and 13 are "th"
+ * regardless of what the final digit rule would otherwise say, and that
+ * exception recurs every hundred — 111th and 213th are "th" for the same
+ * reason 11th is. Checking `n % 100` before falling through to `n % 10` is
+ * what makes both rules hold at once without special-casing each hundred.
+ *
+ * Computed once from the final count, not per animation frame — the digits
+ * climb during the count-up, but the suffix is outside the span GSAP writes
+ * to (see `countRef`) specifically so it does not also reflow on every tick.
+ */
+function ordinalSuffix(n: number): string {
+  const lastTwoDigits = n % 100;
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 13) return "th";
+
+  switch (n % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
 
 /**
  * The confetti's palette — the one place on the page that gets colour.
@@ -103,6 +153,28 @@ export default function Footer() {
   const leftCannon = useRef<ConfettiRef>(null);
   const rightCannon = useRef<ConfettiRef>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const [count, setCount] = useState<VisitorCount>(null);
+
+  // Fired once, on mount rather than on scroll arrival — the count needs to
+  // already be in hand by the time anyone reaches the footer, not started on
+  // arrival, or the celebration below would be waiting on a network request
+  // instead of a scroll position.
+  useEffect(() => {
+    if (hasRequestedVisitorCount) return;
+    hasRequestedVisitorCount = true;
+
+    fetch("/api/visitor-count")
+      .then((response) => {
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        return response.json() as Promise<{ count: number }>;
+      })
+      .then(({ count }) => setCount(count))
+      .catch((error: unknown) => {
+        // Left at `null`. The headline falls back to an em dash rather than
+        // asserting a number the endpoint never actually confirmed.
+        console.error("Failed to load visitor count:", error);
+      });
+  }, []);
 
   useGSAP(
     () => {
@@ -111,13 +183,21 @@ export default function Footer() {
       // preference there is nothing here worth doing a quieter version of.
       if (prefersReducedMotion) return;
 
+      // Nothing to animate toward yet. This re-runs the moment `count` arrives
+      // (it is a dependency below), so the only visitor who ever sees this
+      // branch is one who reaches the footer before the fetch above resolves —
+      // and they still get the plain number once state updates; they just
+      // miss the count-up and the confetti, the same way a visitor who loads
+      // the page already scrolled past the sentinel always has.
+      if (count === null) return;
+
       // Built paused and restarted on the way in, rather than created inside
       // the callback: a tween made in a scroll handler outlives the effect that
       // registered the handler, and this one is owned by `useGSAP`'s context
       // and reverted with it.
       const counter = { value: 0 };
       const countUp = gsap.to(counter, {
-        value: VISITOR,
+        value: count,
         duration: 0.9,
         ease: "power3.out",
         paused: true,
@@ -158,9 +238,14 @@ export default function Footer() {
       const trigger = ScrollTrigger.create({
         trigger: sentinelRef.current,
         start: "top 45%",
-        // Not a one-shot: scrolling back up and returning is a second arrival,
-        // and a second arrival should be celebrated. `onEnter` fires on every
-        // downward crossing, so the re-arming is free.
+        // `once: true`, not the default repeat-on-every-crossing behaviour:
+        // scrolling back up and returning re-crosses the same line, and
+        // `onEnter` would otherwise fire again — restarting the count-up from
+        // 0 and launching a second round of confetti over a number that isn't
+        // moving. The arrival is a one-time event; the number reaching the
+        // footer's static, un-animated resting state is what "already
+        // arrived" looks like on every visit after the first.
+        once: true,
         onEnter: () => {
           countUp.restart();
           fire();
@@ -174,7 +259,7 @@ export default function Footer() {
 
       return () => trigger.kill();
     },
-    { dependencies: [prefersReducedMotion] },
+    { dependencies: [prefersReducedMotion, count] },
   );
 
   return (
@@ -215,17 +300,23 @@ export default function Footer() {
         <div className="relative flex flex-col gap-16 px-6 pt-24 pb-12 md:gap-20 md:px-12 md:pt-32 lg:px-20">
           <div className="text-center">
             <p className="text-neutral-700 font-aeonik-regular text-2xl mb-4">
-              You've reached the end!
+              You&apos;ve reached the end!
             </p>
             <h2 className="font-aeonik-medium text-5xl tracking-tighter text-balance text-black sm:text-6xl lg:text-7xl xl:text-8xl">
               Congrats, you&rsquo;re the <br />
               {/* Tabular figures so the count-up cannot jitter the words after
                   it as the digits change. */}
               <span className="tabular-nums">
-                <span ref={countRef}>{format(VISITOR)}</span>
-                <sup className="align-super text-[0.42em] leading-none tracking-normal">
-                  th
-                </sup>
+                <span ref={countRef}>
+                  {count === null ? "—" : format(count)}
+                </span>
+                {/* Withheld until there is a real number — "—th visitor" reads
+                    as a typo, not as loading. */}
+                {count !== null && (
+                  <sup className="align-super text-[0.42em] leading-none tracking-normal">
+                    {ordinalSuffix(count)}
+                  </sup>
+                )}
               </span>{" "}
               visitor
             </h2>
