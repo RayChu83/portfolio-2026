@@ -150,12 +150,20 @@ function DescriptionContent({ type }: { type: string }) {
             with AI models.
           </p>
           <TechStack type={type} />
-          <Link
-            href="https://syllabustocalendar.com"
-            className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
-          >
-            View website <MdArrowOutward size="24" />
-          </Link>
+          <div className="flex items-center gap-6">
+            <Link
+              href="https://syllabustocalendar.com"
+              className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
+            >
+              View website <MdArrowOutward size="24" />
+            </Link>
+            <Link
+              href="https://github.com/RayChu83/syllabustocalendar"
+              className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-60 hover:opacity-80"
+            >
+              View source code <MdArrowOutward size="24" />
+            </Link>
+          </div>
         </header>
       );
     default:
