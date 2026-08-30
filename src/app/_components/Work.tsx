@@ -89,7 +89,7 @@ const PROJECTS = [
   },
   {
     title: "Syllabus to Calendar",
-    image: "/Syllabus To Calendar.png",
+    image: "/Syllabus_To_Calendar.png",
   },
 ];
 
