@@ -16,7 +16,7 @@ import {
  * is still legible on the way — a page that collapses to a thumbnail reads as
  * a zoom-out, not as a hand-off.
  */
-const EXIT_SCALE = 0.86;
+const EXIT_SCALE = 0.75;
 
 /** Corner radius the departing page picks up as it goes. */
 const EXIT_RADIUS = 64;
@@ -30,6 +30,45 @@ const EXIT_Y = -108;
 
 /** How long the whole exit takes, start to finish. */
 const EXIT_DURATION = 0.9;
+
+/**
+ * How dark the departing card gets by the time it is gone — fully bright at
+ * rest, only a little dimmed by the time it leaves. Dims alongside the shrink
+ * and the slide rather than after them, so the card reads as receding into
+ * shadow as it lifts off the stack instead of just getting smaller.
+ *
+ * Expressed as a target brightness (1 = untouched) rather than as the scrim
+ * opacity that actually produces it — see `EXIT_SCRIM_OPACITY` for why a
+ * `filter` cannot be used to get there directly.
+ */
+const EXIT_BRIGHTNESS = 0.8;
+
+/**
+ * The dim is a black scrim faded in over the card, not a `brightness()`
+ * filter — deliberately, because a filter cannot be applied here safely.
+ *
+ * `SocialLinks` renders its corner icons with `mix-blend-difference`
+ * (SocialLinks.tsx), fixed to the viewport and rendered as a sibling of every
+ * section specifically so that blend mode sees the whole page as its
+ * backdrop. That element is cloned into `holder` along with everything else.
+ * Giving *any* ancestor of a `mix-blend-mode` element a `filter` is not
+ * optional styling — the CSS spec requires that ancestor to become an
+ * isolated blending group root the moment it does, which changes what the
+ * icons blend against: instead of the real page content behind `stage`, the
+ * difference blend now resolves only against whatever is painted inside that
+ * ancestor's own isolated group, which starts as nothing. Chromium's
+ * implementation paints that isolated group as an empty black backdrop for a
+ * frame while it resolves the composite, which is the flash — and it follows
+ * the filter to whichever element carries it, `stage` or `holder` alike, so
+ * moving the filter between them cannot avoid it.
+ *
+ * A plain `background-color` + `opacity` scrim never triggers isolation, so
+ * it is the only way to darken this specific card without the flash. It
+ * approximates rather than reproduces `brightness()` — a multiplicative
+ * per-pixel darken versus a flat black wash — but at this shallow a dim
+ * (1 → 0.75) the two are not visually distinguishable.
+ */
+const EXIT_SCRIM_OPACITY = 1 - EXIT_BRIGHTNESS;
 
 type PageTransitionContextValue = {
   /**
@@ -189,6 +228,21 @@ export default function PageTransition({ children }: { children: ReactNode }) {
     }
 
     stage.appendChild(holder);
+
+    /**
+     * The dim, as a plain black wash faded in over the content — see
+     * `EXIT_SCRIM_OPACITY` for why this is a scrim and not a `filter`.
+     *
+     * A sibling of `holder` inside `stage` (so it clips and rounds with the
+     * card) painted after it (so it sits over the content, not under it),
+     * and `pointer-events: none` since it is decoration over an already-inert
+     * copy.
+     */
+    const scrim = document.createElement("div");
+    scrim.style.cssText =
+      "position:absolute;inset:0;background:#000;opacity:0;pointer-events:none";
+    stage.appendChild(scrim);
+
     overlay.appendChild(stage);
 
     // Only now the copy is in the document and has been laid out: a scroll
@@ -200,13 +254,14 @@ export default function PageTransition({ children }: { children: ReactNode }) {
     }
 
     /**
-     * One tween, not a sequence. Every property the card moves through —
-     * how far up it has travelled, how small it has got, how rounded and how
-     * lifted off the page behind it — is driven off the same clock and the
-     * same ease, so the shrink is not a separate beat that happens before the
-     * exit but the shape the exit has the whole way through: the card is
-     * already smaller by the time it has moved its first hundred pixels, and
-     * still shrinking as the last of it clears the top edge.
+     * One tween for the card's motion, not a sequence. Every property it
+     * moves through — how far up it has travelled, how small it has got, how
+     * rounded and how lifted off the page behind it — is driven off the same
+     * clock and the same ease, so the shrink is not a separate beat that
+     * happens before the exit but the shape the exit has the whole way
+     * through: the card is already smaller by the time it has moved its
+     * first hundred pixels, and still shrinking as the last of it clears the
+     * top edge.
      *
      * Chaining them was the obvious first cut and the wrong one. Two tweens
      * meeting in the middle is two gestures however tightly they are
@@ -218,15 +273,30 @@ export default function PageTransition({ children }: { children: ReactNode }) {
      * and no landing. An `inOut` ease would spend its final, slowest quarter
      * decelerating a card that cleared the top edge some time ago — easing
      * into a stop nobody is there to see, and holding the overlay up for it.
+     *
+     * The scrim is a second tween on the same timeline at `"<"` — same start,
+     * same duration, same ease as the motion above — so the dim still reads
+     * as one property of the single gesture rather than an effect bolted on
+     * after it, even though it is a different element under the hood.
      */
-    timelineRef.current = gsap.timeline({ onComplete: clear }).to(stage, {
-      yPercent: EXIT_Y,
-      scale: EXIT_SCALE,
-      borderRadius: EXIT_RADIUS,
-      boxShadow: "0 40px 90px -20px rgba(0,0,0,0.35)",
-      duration: EXIT_DURATION,
-      ease: "power2.in",
-    });
+    timelineRef.current = gsap
+      .timeline({ onComplete: clear })
+      .to(stage, {
+        yPercent: EXIT_Y,
+        scale: EXIT_SCALE,
+        borderRadius: EXIT_RADIUS,
+        duration: EXIT_DURATION,
+        ease: "power2.in",
+      })
+      .to(
+        scrim,
+        {
+          opacity: EXIT_SCRIM_OPACITY,
+          duration: EXIT_DURATION,
+          ease: "power2.in",
+        },
+        "<",
+      );
   }, [clear]);
 
   return (

@@ -1,11 +1,20 @@
 "use client";
 
 import { useGSAP } from "@gsap/react";
+import { useScrollLock } from "@base-ui/utils/useScrollLock";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Image from "next/image";
 import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  BsArrowsFullscreen,
+  BsPauseFill,
+  BsPlayFill,
+  BsVolumeMuteFill,
+  BsVolumeUpFill,
+  BsX,
+} from "react-icons/bs";
 import { useMediaQuery } from "../_hooks/useMediaQuery";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 import WorkDescriptions from "./WorkDescriptions";
@@ -71,17 +80,18 @@ const WHITE = "#FFFFFF";
 const PROJECTS = [
   {
     title: "Blitz",
-    image: "/blitz.jpg",
+    image: "/Blitz.png",
   },
   {
     title: "Unlevered",
     image: "/Unlevered.png",
+    video: "/Unlevered Product Showcase.mp4",
   },
   {
     title: "Syllabus to Calendar",
     image: "/SyllabusToCalendar.png",
   },
-] as const;
+];
 
 /**
  * Whichever card the carousel opens on: the first one, so the rank reads left
@@ -385,6 +395,14 @@ const GRAIN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent(
     "</svg>",
 )}")`;
 
+/** `m:ss`, for the preview dialog's timeline — never negative, never `NaN:NaN`. */
+function formatTime(seconds: number) {
+  const clamped = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const mins = Math.floor(clamped / 60);
+  const secs = Math.floor(clamped % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
 export default function Work() {
   const sectionRef = useRef<HTMLDivElement>(null);
   /**
@@ -405,7 +423,12 @@ export default function Work() {
    * transforms — see the note on `updateArc` for why the two are separate.
    */
   const faceRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const imgRefs = useRef<(HTMLImageElement | null)[]>([]);
+  const imgRefs = useRef<(HTMLImageElement | HTMLVideoElement | null)[]>([]);
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  /** The `<video>` inside the fullscreen preview dialog. */
+  const fullscreenVideoRef = useRef<HTMLVideoElement>(null);
+  /** The preview dialog's backdrop — faded independently of the video panel. */
+  const previewBackdropRef = useRef<HTMLDivElement>(null);
   /** Per-card dust overlay — see `MAX_DUST_OPACITY`. */
   const dustRefs = useRef<(HTMLDivElement | null)[]>([]);
   /** Per-card grain overlay — see `MAX_GRAIN_OPACITY`. */
@@ -419,6 +442,20 @@ export default function Work() {
 
   const prefersReducedMotion = usePrefersReducedMotion();
   const compact = useMediaQuery(COMPACT);
+  const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
+  /** Per-card play/mute state, mirrored from the `<video>` element's own events. */
+  const [videoUiState, setVideoUiState] = useState<
+    Record<number, { playing: boolean; muted: boolean }>
+  >({});
+  /**
+   * The preview dialog's own play/mute/progress state — separate from
+   * `videoUiState` because that is keyed to the carousel cards, and the
+   * dialog's `<video>` is a different element with no native controls of its
+   * own to fall back on.
+   */
+  const [previewPlaying, setPreviewPlaying] = useState(true);
+  const [previewMuted, setPreviewMuted] = useState(false);
+  const [previewTime, setPreviewTime] = useState({ current: 0, duration: 0 });
 
   /**
    * Index into `PROJECTS` of whichever card currently sits nearest the
@@ -445,6 +482,129 @@ export default function Work() {
    */
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
+
+  /**
+   * Autoplay the centered video, pause all others. This keeps videos from
+   * playing off-screen and consuming bandwidth/CPU. Skipped while the
+   * fullscreen preview is open — that video is the one carrying sound, and
+   * this effect would otherwise fight it every time `centeredIndex` changes.
+   */
+  useEffect(() => {
+    if (fullscreenIndex !== null) return;
+    videoRefs.current.forEach((video, index) => {
+      if (!video) return;
+      if (index === centeredIndex) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
+    });
+  }, [centeredIndex, fullscreenIndex]);
+
+  // The inline card behind the preview is muted, but pausing it while the
+  // preview plays still saves the decode work for a frame nobody can see.
+  // No cleanup that resumes it on close — closing always leaves the card
+  // paused, handed back at whatever point the preview reached; see
+  // `closeFullscreen`.
+  useEffect(() => {
+    if (fullscreenIndex === null) return;
+    videoRefs.current[fullscreenIndex]?.pause();
+  }, [fullscreenIndex]);
+
+  /**
+   * The backdrop fading in whenever the dialog opens — reversed, roughly, by
+   * the tween `closeFullscreen` plays on the way out. Reads from
+   * `fullscreenIndex` rather than a mount/unmount lifecycle because the
+   * dialog's JSX is itself gated on that value; this only has to supply the
+   * *first* frame's motion; React has already done the mounting.
+   *
+   * The video panel is deliberately not handled here — see the `opacity-0`
+   * note on its `className` for why its entrance waits for `onLoadedMetadata`
+   * instead of starting the moment this effect runs.
+   */
+  useGSAP(
+    () => {
+      if (fullscreenIndex === null || prefersReducedMotion) return;
+
+      gsap.set(previewBackdropRef.current, { opacity: 0 });
+      gsap.to(previewBackdropRef.current, {
+        opacity: 1,
+        duration: 0.3,
+        ease: "power2.out",
+      });
+    },
+    { dependencies: [fullscreenIndex, prefersReducedMotion] },
+  );
+
+  /** Guards against a second close arriving mid-exit-tween — Escape held down. */
+  const closingFullscreenRef = useRef(false);
+
+  /**
+   * Closes the preview, carrying its position back to the card it was opened
+   * from and leaving that card paused there — rather than resuming playback
+   * mid-carousel the moment the visitor looks away from the video.
+   *
+   * Reads `fullscreenVideoRef` up front rather than in the tween's
+   * `onComplete`: the dialog's `<video>` stays mounted for the exit
+   * animation's duration, but the moment `setFullscreenIndex(null)` actually
+   * fires — inside `finish`, at the very end — it unmounts and the ref goes
+   * null, so anything reading it has to run before that point.
+   */
+  const closeFullscreen = useCallback(() => {
+    if (fullscreenIndex === null || closingFullscreenRef.current) return;
+    const inlineVideo = videoRefs.current[fullscreenIndex];
+    const previewVideo = fullscreenVideoRef.current;
+    const capturedTime = previewVideo?.currentTime;
+
+    const finish = () => {
+      closingFullscreenRef.current = false;
+      if (inlineVideo && capturedTime !== undefined) {
+        inlineVideo.currentTime = capturedTime;
+      }
+      inlineVideo?.pause();
+      setFullscreenIndex(null);
+    };
+
+    if (prefersReducedMotion) {
+      finish();
+      return;
+    }
+
+    closingFullscreenRef.current = true;
+    gsap
+      .timeline({ onComplete: finish })
+      .to(
+        previewVideo,
+        { opacity: 0, scale: 0.92, duration: 0.25, ease: "power2.in" },
+        0,
+      )
+      .to(
+        previewBackdropRef.current,
+        { opacity: 0, duration: 0.25, ease: "power2.in" },
+        0,
+      );
+  }, [fullscreenIndex, prefersReducedMotion]);
+
+  // Escape closes the preview from anywhere on the page, not just while the
+  // dialog itself has focus.
+  useEffect(() => {
+    if (fullscreenIndex === null) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") closeFullscreen();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreenIndex, closeFullscreen]);
+
+  // The preview sits over the page rather than replacing it, so the page
+  // underneath is still scrollable by default. A plain `document.body.style
+  // .overflow = "hidden"` used to sit here, but that hack doesn't compensate
+  // for the scrollbar disappearing (the page jitters sideways) and iOS
+  // Safari ignores it for touch scrolling outright. `useScrollLock` is Base
+  // UI's own primitive for this — already a transitive dependency of
+  // `@base-ui/react`, which this file doesn't otherwise use, so it is pulled
+  // in directly rather than reached for a whole extra library.
+  useScrollLock(fullscreenIndex !== null);
 
   /**
    * The card the carousel has most recently been *told* to go to, which is
@@ -1190,30 +1350,150 @@ export default function Work() {
                       // `syncWillChange` only while the section is on screen.
                       className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60"
                     >
-                      <Image
-                        ref={(el) => {
-                          imgRefs.current[index] = el;
-                        }}
-                        src={project.image}
-                        alt={project.title}
-                        fill
-                        sizes="(max-width: 768px) 80vw, 720px"
-                        loading="lazy"
-                        decoding="async"
-                        className="object-cover"
-                        draggable={false}
-                        // The radial dissolve re-rasterises the image on every
-                        // distinct `--depth`; the compact build swaps it for
-                        // the opacity ramp on the face and carries no mask.
-                        style={
-                          compact
-                            ? undefined
-                            : {
-                                WebkitMaskImage: IMAGE_MASK,
-                                maskImage: IMAGE_MASK,
-                              }
-                        }
-                      />
+                      {project.video ? (
+                        <>
+                          <video
+                            ref={(el) => {
+                              imgRefs.current[index] = el;
+                              videoRefs.current[index] = el;
+                            }}
+                            src={project.video}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            muted
+                            loop
+                            playsInline
+                            onPlay={() =>
+                              setVideoUiState((prev) => ({
+                                ...prev,
+                                [index]: {
+                                  muted: prev[index]?.muted ?? true,
+                                  playing: true,
+                                },
+                              }))
+                            }
+                            onPause={() =>
+                              setVideoUiState((prev) => ({
+                                ...prev,
+                                [index]: {
+                                  muted: prev[index]?.muted ?? true,
+                                  playing: false,
+                                },
+                              }))
+                            }
+                            onVolumeChange={(event) => {
+                              const muted = event.currentTarget.muted;
+                              setVideoUiState((prev) => ({
+                                ...prev,
+                                [index]: {
+                                  playing: prev[index]?.playing ?? true,
+                                  muted,
+                                },
+                              }));
+                            }}
+                            // The radial dissolve re-rasterises the video on every
+                            // distinct `--depth`; the compact build swaps it for
+                            // the opacity ramp on the face and carries no mask.
+                            style={
+                              compact
+                                ? undefined
+                                : {
+                                    WebkitMaskImage: IMAGE_MASK,
+                                    maskImage: IMAGE_MASK,
+                                  }
+                            }
+                          />
+                          {/*
+                            Controls only shown for the centred card — the
+                            flanks are rotated, dimmed and often only partly
+                            visible, so buttons on them would be both hard to
+                            read and easy to hit by accident while stepping
+                            through the carousel.
+                          */}
+                          {index === centeredIndex && (
+                            <div className="absolute bottom-4 left-4 z-20 flex gap-2">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const video = videoRefs.current[index];
+                                  if (!video) return;
+                                  if (video.paused) video.play();
+                                  else video.pause();
+                                }}
+                                aria-label={
+                                  (videoUiState[index]?.playing ?? true)
+                                    ? "Pause video"
+                                    : "Play video"
+                                }
+                                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
+                              >
+                                {(videoUiState[index]?.playing ?? true) ? (
+                                  <BsPauseFill size={18} />
+                                ) : (
+                                  <BsPlayFill size={18} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const video = videoRefs.current[index];
+                                  if (!video) return;
+                                  video.muted = !video.muted;
+                                }}
+                                aria-label={
+                                  (videoUiState[index]?.muted ?? true)
+                                    ? "Unmute video"
+                                    : "Mute video"
+                                }
+                                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
+                              >
+                                {(videoUiState[index]?.muted ?? true) ? (
+                                  <BsVolumeMuteFill size={18} />
+                                ) : (
+                                  <BsVolumeUpFill size={18} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setFullscreenIndex(index);
+                                }}
+                                aria-label="Expand video preview"
+                                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
+                              >
+                                <BsArrowsFullscreen size={16} />
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <Image
+                          ref={(el) => {
+                            imgRefs.current[index] = el;
+                          }}
+                          src={project.image}
+                          alt={project.title}
+                          fill
+                          sizes="(max-width: 768px) 80vw, 720px"
+                          loading="lazy"
+                          decoding="async"
+                          className="object-cover"
+                          draggable={false}
+                          // The radial dissolve re-rasterises the image on every
+                          // distinct `--depth`; the compact build swaps it for
+                          // the opacity ramp on the face and carries no mask.
+                          style={
+                            compact
+                              ? undefined
+                              : {
+                                  WebkitMaskImage: IMAGE_MASK,
+                                  maskImage: IMAGE_MASK,
+                                }
+                          }
+                        />
+                      )}
                       {/*
                       The dust. Same image again, but showing only through the
                       particle stencil — so every speck is a sample of the
@@ -1370,6 +1650,191 @@ export default function Work() {
           <WorkDescriptions type={PROJECTS[centeredIndex].title} />
         </div>
       </div>
+
+      {/*
+        The expanded preview. A sibling of `contentRef` rather than inside it —
+        the section can be mid-fade or off-screen entirely while this is open,
+        and the preview has no business inheriting that opacity. Not the real
+        Fullscreen API: this is a large in-page overlay so the browser chrome,
+        and the escape hatch back to the page, both stay on screen.
+      */}
+      {fullscreenIndex !== null && PROJECTS[fullscreenIndex].video && (
+        <div
+          ref={previewBackdropRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${PROJECTS[fullscreenIndex].title} preview`}
+          onClick={closeFullscreen}
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-6 sm:p-12"
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              closeFullscreen();
+            }}
+            aria-label="Close preview"
+            className="absolute top-4 left-4 z-10 rounded-full border border-white/20 bg-black/50 p-3 text-white backdrop-blur transition hover:bg-black/75 sm:top-6 sm:left-6"
+          >
+            <BsX size={28} />
+          </button>
+          {/*
+            `inline-block` rather than a size of its own: the box has to match
+            whatever the video renders at — its real intrinsic ratio, capped
+            to the viewport, decided below — so the control bar sitting on
+            top of it (absolutely positioned against *this* element) lines up
+            with the video's actual edges instead of the dialog's padding.
+          */}
+          <div
+            className="relative inline-block"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <video
+              key={fullscreenIndex}
+              ref={fullscreenVideoRef}
+              src={PROJECTS[fullscreenIndex].video}
+              autoPlay
+              playsInline
+              // No native `controls`: the bar below replaces them, sharing
+              // the same play/pause and mute affordances as the carousel
+              // card's own overlay rather than mixing browser chrome with
+              // this site's controls.
+              onPlay={() => setPreviewPlaying(true)}
+              onPause={() => setPreviewPlaying(false)}
+              onVolumeChange={(event) =>
+                setPreviewMuted(event.currentTarget.muted)
+              }
+              onTimeUpdate={(event) => {
+                const current = event.currentTarget.currentTime;
+                setPreviewTime((prev) => ({ ...prev, current }));
+              }}
+              // Opens on the exact frame the carousel card was left at — the
+              // card is paused the instant this dialog mounts (see the effect
+              // above), so its `currentTime` is stable to read by the time
+              // metadata for this element is ready to accept one.
+              //
+              // Also where the panel is actually revealed. It has no
+              // hard-coded aspect ratio any more — a fixed one previously
+              // stood in for the real dimensions before the browser knew
+              // them, but that guess stops matching the moment the source
+              // video's own ratio changes, which is exactly what surfaced
+              // this: it started forcing a 16:9 box onto a video that no
+              // longer is one, letterboxing it inside the rounded corners.
+              // `max-h`/`max-w` alone let the browser size the element to its
+              // *real* intrinsic ratio, capped to the viewport, however that
+              // ratio turns out to be — but that sizing isn't known until
+              // this event fires, so the panel stays `opacity-0` (className
+              // below) until here, rather than showing a wrongly-sized box
+              // for the one frame before metadata arrives.
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                const inlineVideo = videoRefs.current[fullscreenIndex];
+                if (inlineVideo) {
+                  video.currentTime = inlineVideo.currentTime;
+                }
+                setPreviewTime({
+                  current: video.currentTime,
+                  duration: video.duration,
+                });
+
+                if (prefersReducedMotion) {
+                  gsap.set(video, { opacity: 1, scale: 1 });
+                } else {
+                  gsap.fromTo(
+                    video,
+                    { opacity: 0, scale: 0.92 },
+                    {
+                      opacity: 1,
+                      scale: 1,
+                      duration: 0.35,
+                      ease: "power2.out",
+                    },
+                  );
+                }
+              }}
+              className="block max-h-[85vh] max-w-[90vw] rounded-2xl opacity-0 shadow-2xl shadow-black/60"
+              onClick={() => {
+                const video = fullscreenVideoRef.current;
+                if (!video) return;
+                if (video.paused) video.play();
+                else video.pause();
+              }}
+            />
+
+            {/*
+              The custom timeline: a seek bar plus the time remaining, in
+              place of whatever the browser's own scrubber would have shown.
+              Pinned to the video's bottom edge via the wrapper above rather
+              than the dialog's, so it tracks the video's actual rendered
+              size at any viewport.
+
+              Withheld until `duration` is known — `previewTime` still carries
+              whatever the last preview left behind for the one tick before
+              this element's own `onLoadedMetadata` overwrites it, and a
+              duration/seek-bar briefly showing a stale video's numbers is a
+              worse glitch than the bar simply not being there yet.
+            */}
+            {previewTime.duration > 0 && (
+              <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 rounded-b-2xl bg-gradient-to-t from-black/80 to-transparent px-4 pt-10 pb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const video = fullscreenVideoRef.current;
+                    if (!video) return;
+                    if (video.paused) video.play();
+                    else video.pause();
+                  }}
+                  aria-label={previewPlaying ? "Pause video" : "Play video"}
+                  className="shrink-0 rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
+                >
+                  {previewPlaying ? (
+                    <BsPauseFill size={18} />
+                  ) : (
+                    <BsPlayFill size={18} />
+                  )}
+                </button>
+
+                <input
+                  type="range"
+                  min={0}
+                  max={previewTime.duration || 0}
+                  step={0.01}
+                  value={previewTime.current}
+                  onChange={(event) => {
+                    const video = fullscreenVideoRef.current;
+                    const value = Number(event.currentTarget.value);
+                    if (video) video.currentTime = value;
+                    setPreviewTime((prev) => ({ ...prev, current: value }));
+                  }}
+                  aria-label="Seek"
+                  className="h-1.5 w-full min-w-0 cursor-pointer accent-white"
+                />
+
+                <span className="w-11 shrink-0 text-right text-xs tabular-nums text-white/80">
+                  -{formatTime(previewTime.duration - previewTime.current)}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const video = fullscreenVideoRef.current;
+                    if (!video) return;
+                    video.muted = !video.muted;
+                  }}
+                  aria-label={previewMuted ? "Unmute video" : "Mute video"}
+                  className="shrink-0 rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
+                >
+                  {previewMuted ? (
+                    <BsVolumeMuteFill size={18} />
+                  ) : (
+                    <BsVolumeUpFill size={18} />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

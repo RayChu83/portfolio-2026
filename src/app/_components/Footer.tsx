@@ -45,6 +45,54 @@ type VisitorCount = number | null;
  */
 let hasRequestedVisitorCount = false;
 
+/**
+ * Where the fetched count is cached in the browser, across full page loads.
+ *
+ * `sessionStorage`, not `localStorage`: the number is a snapshot of what
+ * Redis said the *first* time this tab asked, and Redis moves on for every
+ * later visitor whether or not this one has closed their tab. `localStorage`
+ * would show that stale snapshot again on a visit next week; `sessionStorage`
+ * dies with the tab, which is exactly the window "the count I was already
+ * given" should live for.
+ */
+const VISITOR_COUNT_STORAGE_KEY = "visitor-count";
+
+/**
+ * The cached count from an earlier load in this tab, or `null` if there
+ * isn't one — either nothing was ever stored, or the browser refused to say
+ * (private browsing can make `sessionStorage` throw on read).
+ *
+ * Reading a plain number back out of storage rather than trusting the
+ * string: `sessionStorage` holds whatever was last written under this key,
+ * including a stray value from a previous version of this component, so
+ * `Number.isFinite` is what stands between a corrupt entry and a headline
+ * reading "NaNth visitor".
+ */
+function readCachedVisitorCount(): number | null {
+  try {
+    const raw = window.sessionStorage.getItem(VISITOR_COUNT_STORAGE_KEY);
+    if (raw === null) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stashes a freshly fetched count for the rest of this tab's session — see
+ * `readCachedVisitorCount`. Failure is silent and simply means the next page
+ * in this tab fetches again, which is the same behaviour as today; nothing
+ * here is worth losing the count itself over.
+ */
+function writeCachedVisitorCount(count: number): void {
+  try {
+    window.sessionStorage.setItem(VISITOR_COUNT_STORAGE_KEY, String(count));
+  } catch {
+    // Nothing to do — see above.
+  }
+}
+
 /** Padded to a fixed width so the digits never reflow the headline mid-count. */
 const format = (n: number) => String(n).padStart(3, "0");
 
@@ -164,6 +212,21 @@ export default function Footer() {
     if (hasRequestedVisitorCount) return;
     hasRequestedVisitorCount = true;
 
+    // A visitor who has already been counted this tab — followed a link away
+    // and came back, or hit reload — gets the number this tab already has
+    // rather than a second round trip to `/api/visitor-count`. The endpoint
+    // would answer with the same figure anyway (the dedupe cookie stops the
+    // backend incrementing twice), so this is purely about not asking again
+    // for an answer already in hand.
+    const cached = readCachedVisitorCount();
+    if (cached !== null) {
+      // Deferred a tick rather than set synchronously in the effect body —
+      // matching the fetch branch below, whose own `setCount` is likewise
+      // one microtask removed from the effect that started it.
+      Promise.resolve().then(() => setCount(cached));
+      return;
+    }
+
     // The hint describes the machine, not this browser — it is what lets the
     // route tell two devices on one network apart while still recognising the
     // same device in a second browser. Computed here rather than server-side
@@ -177,7 +240,10 @@ export default function Footer() {
         if (!response.ok) throw new Error(`status ${response.status}`);
         return response.json() as Promise<{ count: number }>;
       })
-      .then(({ count }) => setCount(count))
+      .then(({ count }) => {
+        setCount(count);
+        writeCachedVisitorCount(count);
+      })
       .catch((error: unknown) => {
         // Left at `null`. The headline falls back to an em dash rather than
         // asserting a number the endpoint never actually confirmed.

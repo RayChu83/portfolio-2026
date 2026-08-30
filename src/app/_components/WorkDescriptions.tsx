@@ -5,12 +5,11 @@ import gsap from "gsap";
 /**
  * The three "Learn more" links are the only route-to-route navigation on the
  * site, which makes them the only place the page transition can be started
- * from. `TransitionLink` is a `next/link` in every other respect.
+ * from. `Link` is a `next/link` in every other respect.
  */
-import TransitionLink from "./TransitionLink";
 import { useRef } from "react";
 import type { IconType } from "react-icons";
-import { BsArrowRightShort } from "react-icons/bs";
+import { MdArrowOutward } from "react-icons/md";
 import { FaAws } from "react-icons/fa6";
 import {
   SiDocker,
@@ -24,6 +23,7 @@ import {
   SiTailwindcss,
   SiTypescript,
 } from "react-icons/si";
+import Link from "next/link";
 
 gsap.registerPlugin(useGSAP);
 
@@ -113,12 +113,6 @@ function DescriptionContent({ type }: { type: string }) {
             investor relations reports, and earnings transcripts.
           </p>
           <TechStack type={type} />
-          <TransitionLink
-            href="/unlevered"
-            className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
-          >
-            Learn more <BsArrowRightShort strokeWidth={0.5} size="24" />
-          </TransitionLink>
         </header>
       );
     case "Blitz":
@@ -130,17 +124,17 @@ function DescriptionContent({ type }: { type: string }) {
             <span className="text-white/80! font-aeonik-medium!">
               Software Engineer Intern
             </span>{" "}
-            since March of this year. I&apos;ve rebuilt the entire front-end UI
-            of the Blitz platform from the ground up which links to back-end
-            services to transfer millions in payouts to thousands of users.
+            since March 2026. I&apos;ve rebuilt the entire front-end UI of the
+            Blitz platform from the ground up which links to back-end services
+            to transfer millions in payouts to thousands of users.
           </p>
           <TechStack type={type} />
-          <TransitionLink
-            href="/blitz"
+          <Link
+            href="https://useblitz.co"
             className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
           >
-            Learn more <BsArrowRightShort strokeWidth={0.5} size="24" />
-          </TransitionLink>
+            View website <MdArrowOutward size="24" />
+          </Link>
         </header>
       );
     case "Syllabus to Calendar":
@@ -156,12 +150,12 @@ function DescriptionContent({ type }: { type: string }) {
             with AI models.
           </p>
           <TechStack type={type} />
-          <TransitionLink
-            href="/syllabus-to-calendar"
+          <Link
+            href="https://syllabustocalendar.com"
             className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
           >
-            Learn more <BsArrowRightShort strokeWidth={0.5} size="24" />
-          </TransitionLink>
+            View website <MdArrowOutward size="24" />
+          </Link>
         </header>
       );
     default:

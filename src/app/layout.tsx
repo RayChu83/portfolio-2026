@@ -7,7 +7,7 @@ import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import PageLoader from "./_components/PageLoader";
 import PageTransition from "./_components/PageTransition";
 
-const inter = Inter({subsets:['latin'],variable:'--font-sans'});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   /**
@@ -112,7 +112,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={cn(aeonikVariables, "font-sans", inter.variable)}>
+    <html
+      lang="en"
+      className={cn(aeonikVariables, "font-sans", inter.variable)}
+    >
       <body className="min-h-full flex flex-col">
         {/* Inside the loader, not outside it: the loader's gate is a fixed
             sheet painted over the page and has nothing to do with routing,
