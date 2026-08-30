@@ -312,7 +312,7 @@ export default function Footer() {
               You&apos;ve reached the end!
             </p>
             <h2 className="font-aeonik-medium text-5xl tracking-tighter text-balance text-black sm:text-6xl lg:text-7xl xl:text-8xl">
-              Congrats, you&rsquo;re the <br />
+              Congrats, you&rsquo;re the <br className="sm:block hidden" />
               {/* Tabular figures so the count-up cannot jitter the words after
                   it as the digits change. */}
               <span className="tabular-nums">

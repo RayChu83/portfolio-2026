@@ -2,7 +2,12 @@
 
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import Link from "next/link";
+/**
+ * The three "Learn more" links are the only route-to-route navigation on the
+ * site, which makes them the only place the page transition can be started
+ * from. `TransitionLink` is a `next/link` in every other respect.
+ */
+import TransitionLink from "./TransitionLink";
 import { useRef } from "react";
 import type { IconType } from "react-icons";
 import { BsArrowRightShort } from "react-icons/bs";
@@ -108,12 +113,12 @@ function DescriptionContent({ type }: { type: string }) {
             investor relations reports, and earnings transcripts.
           </p>
           <TechStack type={type} />
-          <Link
-            href="#"
+          <TransitionLink
+            href="/unlevered"
             className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
           >
             Learn more <BsArrowRightShort strokeWidth={0.5} size="24" />
-          </Link>
+          </TransitionLink>
         </header>
       );
     case "Blitz":
@@ -130,12 +135,12 @@ function DescriptionContent({ type }: { type: string }) {
             services to transfer millions in payouts to thousands of users.
           </p>
           <TechStack type={type} />
-          <Link
-            href="#"
+          <TransitionLink
+            href="/blitz"
             className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
           >
             Learn more <BsArrowRightShort strokeWidth={0.5} size="24" />
-          </Link>
+          </TransitionLink>
         </header>
       );
     case "Syllabus to Calendar":
@@ -151,12 +156,12 @@ function DescriptionContent({ type }: { type: string }) {
             with AI models.
           </p>
           <TechStack type={type} />
-          <Link
-            href="#"
+          <TransitionLink
+            href="/syllabus-to-calendar"
             className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
           >
             Learn more <BsArrowRightShort strokeWidth={0.5} size="24" />
-          </Link>
+          </TransitionLink>
         </header>
       );
     default:

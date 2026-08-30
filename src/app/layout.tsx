@@ -5,6 +5,7 @@ import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import PageLoader from "./_components/PageLoader";
+import PageTransition from "./_components/PageTransition";
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
@@ -113,7 +114,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={cn(aeonikVariables, "font-sans", inter.variable)}>
       <body className="min-h-full flex flex-col">
-        <PageLoader>{children}</PageLoader>
+        {/* Inside the loader, not outside it: the loader's gate is a fixed
+            sheet painted over the page and has nothing to do with routing,
+            while the transition needs to own the page's own top-level nodes
+            so it can photograph them on the way out. Nesting it the other way
+            would put the gate inside the picture. */}
+        <PageLoader>
+          <PageTransition>{children}</PageTransition>
+        </PageLoader>
       </body>
     </html>
   );

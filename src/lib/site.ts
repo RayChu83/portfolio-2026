@@ -36,5 +36,5 @@ export const SITE_NAME = "Ray Chu";
  * the last thing a searcher sees is an ellipsis.
  */
 export const SITE_DESCRIPTION =
-  "Ray Chu is a college student working in New York City as a software engineer" +
-  " who specializes in building with careful design.";
+  "Ray Chu is a Software Engineer working in New York City" +
+  " who specializes in building with careful UI design.";
