@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { FaArrowUp } from "react-icons/fa6";
 import { Confetti, type ConfettiRef } from "@/components/ui/confetti";
 import { DEVICE_HINT_HEADER, deviceHint } from "@/lib/device-hint";
+import { RESUME_PATH } from "@/lib/site";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
@@ -424,8 +425,11 @@ export default function Footer() {
         <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3 bg-neutral-100 px-6 py-6 text-neutral-500 md:px-12 lg:px-20">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <span>&copy; {new Date().getFullYear()} Ray Chu</span>
+            {/* The résumé PDF, not the GitHub profile this used to point at.
+                A link whose text and destination disagree is a quality signal
+                a search engine reads and a promise a visitor does not get. */}
             <Link
-              href="https://github.com/RayChu83"
+              href={RESUME_PATH}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 transition-colors hover:text-black focus-visible:text-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-black motion-reduce:transition-none"

@@ -76,20 +76,28 @@ const WHITE = "#FFFFFF";
  * exactly, case included — the local filesystem is case-insensitive but the
  * deploy target is not, so a casing slip here is a 404 that only ever shows
  * up in production.
+ *
+ * WebP sources rather than the PNGs these used to be. `/_next/image` re-encodes
+ * whatever it is handed, so the bytes a visitor downloads were already modern
+ * either way — what changes is everything upstream of that: 1.3 MB of PNG in
+ * the repository and in every deploy became 156 KB, and the optimiser has an
+ * eighth as much to decode on a cold cache. At the 720 px these ever render
+ * (see `sizes` below) the re-encode is invisible; the sources were 1920 px
+ * screenshots being downscaled regardless.
  */
 const PROJECTS = [
   {
     title: "Blitz",
-    image: "/Blitz.png",
+    image: "/Blitz.webp",
   },
   {
     title: "Unlevered",
-    image: "/Unlevered.png",
+    image: "/Unlevered.webp",
     video: "/Unlevered Product Showcase.mp4",
   },
   {
     title: "Syllabus to Calendar",
-    image: "/Syllabus_To_Calendar.png",
+    image: "/Syllabus_To_Calendar.webp",
   },
 ];
 
@@ -1352,6 +1360,18 @@ export default function Work() {
                     >
                       {project.video ? (
                         <>
+                          {/* `preload="none"`, deliberately, and it is worth
+                              a line: the one video here is a 70 MB showcase
+                              reel, and the browser default (`metadata`, and
+                              in practice more than that in Safari) has every
+                              visitor pay for some of it before the card is
+                              anywhere near the screen. Nothing is lost —
+                              the autoplay effect above calls `play()` when
+                              the card centres, which starts the fetch then,
+                              for the visitor who has actually arrived at it.
+                              Bytes nobody watches are the single largest
+                              thing this page spends, and they land squarely
+                              on the Core Web Vitals a search engine reads. */}
                           <video
                             ref={(el) => {
                               imgRefs.current[index] = el;

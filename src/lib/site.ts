@@ -38,3 +38,22 @@ export const SITE_NAME = "Ray Chu";
 export const SITE_DESCRIPTION =
   "Ray Chu is a Software Engineer working in New York City" +
   " who specializes in building with careful UI design.";
+
+/**
+ * Where the same identity is published elsewhere.
+ *
+ * Not decoration: `sameAs` is how a search engine confirms that the "Ray Chu"
+ * on this domain and the "Ray Chu" on LinkedIn are one person rather than two
+ * of the same name. It is the single strongest signal available for a
+ * personal site competing on its owner's name, which is the query this site
+ * exists to win.
+ */
+export const SITE_PROFILES = [
+  "https://www.linkedin.com/in/raychu83/",
+  "https://github.com/RayChu83",
+] as const;
+
+export const SITE_JOB_TITLE = "Software Engineer";
+
+/** Where the résumé PDF lives, relative to the origin. */
+export const RESUME_PATH = "/Ray_Chu_Resume.pdf";

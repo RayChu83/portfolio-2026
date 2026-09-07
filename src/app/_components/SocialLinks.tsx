@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { RESUME_PATH } from "@/lib/site";
 import {
   FaEnvelope,
   FaFileArrowDown,
@@ -22,10 +23,8 @@ const LINKS = [
     label: "GitHub",
     Icon: FaGithub,
   },
-  // TODO: point this at a real résumé once one is hosted — it currently
-  // repeats the GitHub URL, which is what the labelled version linked to.
   {
-    href: "https://github.com/RayChu83",
+    href: RESUME_PATH,
     label: "Résumé",
     Icon: FaFileArrowDown,
   },

@@ -166,3 +166,49 @@ html {
     display: none;
   }
 }
+
+/*
+ * The loader gate's escape hatch — see `PageLoader`.
+ *
+ * The gate is a white sheet rendered over the page with `opacity: 1` in the
+ * server's HTML, and until this existed the only thing that ever lifted it was
+ * a React effect. That makes the whole page invisible not until the hero's two
+ * drawings have loaded, which is what it is for, but until the JavaScript
+ * bundle has downloaded, parsed and hydrated — so a visitor on a slow
+ * connection, or any visitor whose script fails to run at all, is shown a
+ * blank white screen over a page that is fully rendered underneath it.
+ *
+ * This is the floor under that: a pure-CSS fade that starts on its own and
+ * needs nothing but the stylesheet. Worst case the sheet is gone at
+ * 1.5s + 0.5s whatever the script does. `forwards` holds it at zero rather
+ * than snapping back, and `visibility: hidden` at the end takes it out of the
+ * hit-testing tree the way the JavaScript path's `pointer-events-none` does.
+ *
+ * `PageLoader` lifts it earlier by setting `animation: none` and its own
+ * `opacity: 0`, which is the normal path — this only ever wins when the script
+ * is slow or absent.
+ */
+@keyframes page-loader-lift {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.page-loader-gate {
+  animation: page-loader-lift 500ms ease 1500ms forwards;
+}
+
+/*
+ * Under the preference the gate still lifts on its own — it has to, since it
+ * is the only thing standing between a script-less visitor and a blank page —
+ * but it cuts rather than fades. A 1ms duration is a hard swap, not a
+ * transition, which is what the preference is asking for; dropping the
+ * animation entirely would take the escape hatch away from exactly the
+ * visitors least likely to be on a fast connection.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .page-loader-gate {
+    animation-duration: 1ms;
+  }
+}

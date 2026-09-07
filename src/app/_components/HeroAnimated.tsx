@@ -1156,6 +1156,35 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
     },
   );
 
+  /**
+   * The two corner labels, as one fragment so the same elements can be
+   * rendered in place or portaled to `<body>` without being written twice.
+   *
+   * `motion-safe:invisible` is what keeps them off the first paint: everything
+   * that holds a glyph out of sight — the line clips SplitText wraps them in,
+   * the pose it starts them from — is built by JavaScript, so before the
+   * timeline exists the browser has nothing but two finished paragraphs to
+   * draw, and would draw them. The words are in the markup for anything
+   * reading the document; the preference-gated `invisible` is only about the
+   * frame before the animation is ready.
+   */
+  const cornerLabels = (
+    <>
+      <p
+        ref={roleRef}
+        className="fixed top-0 left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
+      >
+        Software Engineer
+      </p>
+      <p
+        ref={craftRef}
+        className="fixed bottom-0 text-right right-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
+      >
+        Who Designs
+      </p>
+    </>
+  );
+
   return (
     <>
       {/* `fixed`, so the two of them sit in the corners of the screen. The
@@ -1188,24 +1217,21 @@ export default function HeroAnimated({ mapData }: { mapData: MapData | null }) {
           these off the screen. A build with neither would leave both
           paragraphs glued over the whole page, which is what a reduce-motion
           visitor used to get (REDUCED-MOTION-AUDIT.md, finding 1). */}
-      {overlay &&
-        createPortal(
-          <>
-            <p
-              ref={roleRef}
-              className="fixed top-0 left-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
-            >
-              Software Engineer
-            </p>
-            <p
-              ref={craftRef}
-              className="fixed bottom-0 text-right right-0 z-10 p-6 md:p-10 font-aeonik-regular uppercase tracking-tight text-6xl md:text-7xl lg:text-8xl 2xl:text-9xl motion-safe:invisible"
-            >
-              Who Designs
-            </p>
-          </>,
-          overlay,
-        )}
+      {/* Rendered here until there is somewhere to send them, rather than not
+          rendered at all. The `overlay &&` this replaces meant the server's
+          HTML contained neither paragraph — the two words the page is most
+          about, "Software Engineer", reached a crawler only if it chose to run
+          the JavaScript. Written in the tree, they are in the first response,
+          and the post-hydration commit moves them to `<body>` exactly as
+          before.
+
+          Which is safe to do only because `overlay` is `null` for the
+          hydrating render as well as on the server (see the store above): both
+          sides render these two paragraphs in this position, React reconciles
+          them without a mismatch, and the portal is a *move* on the commit
+          after — the same DOM nodes, so `roleRef` and `craftRef` keep pointing
+          at the elements the timeline is built on. */}
+      {overlay ? createPortal(cornerLabels, overlay) : cornerLabels}
       {/* Takes whatever the header leaves of the first screen, so the two of
           them fill exactly one viewport on landing. ScrollTrigger carries the
           size over to the pin, so the headshot never changes size as it pins

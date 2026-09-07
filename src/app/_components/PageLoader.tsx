@@ -69,10 +69,20 @@ export default function PageLoader({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
+      {/* `page-loader-gate` is the CSS-only fade defined in `globals.css`: the
+          sheet lifts itself at 1.5s whether or not this component's effect
+          ever runs. Without it the gate's only exit was a React effect, which
+          means the page was blank until the bundle had downloaded and
+          hydrated — and stayed blank forever for a visitor whose script
+          failed. `[animation:none]` hands control back to this component the
+          moment it is ready, so the normal path is unchanged and the CSS only
+          wins when the script is slow or absent. */}
       <div
         aria-hidden
-        className={`fixed inset-0 z-100 flex items-center justify-center bg-white transition-opacity duration-500 ${
-          ready ? "pointer-events-none opacity-0" : "opacity-100"
+        className={`page-loader-gate fixed inset-0 z-100 flex items-center justify-center bg-white transition-opacity duration-500 ${
+          ready
+            ? "pointer-events-none opacity-0 [animation:none]"
+            : "opacity-100"
         }`}
       >
         {/* Under reduced motion the spin stops and the accent segment goes,

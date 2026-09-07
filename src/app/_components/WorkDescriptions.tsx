@@ -96,6 +96,19 @@ function TechStack({ type }: { type: string }) {
   );
 }
 
+/**
+ * Every project that has copy here, in the order the carousel lays them out.
+ *
+ * A list rather than a derivation from `TECHNOLOGIES` above, whose key order
+ * is an object's and not the carousel's — these are rendered into the document
+ * in this order, so it should be the order a reader meets them in.
+ */
+const DESCRIBED_PROJECTS = [
+  "Blitz",
+  "Unlevered",
+  "Syllabus to Calendar",
+] as const;
+
 function DescriptionContent({ type }: { type: string }) {
   switch (type) {
     case "Unlevered":
@@ -131,6 +144,8 @@ function DescriptionContent({ type }: { type: string }) {
           <TechStack type={type} />
           <Link
             href="https://useblitz.co"
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
           >
             View website <MdArrowOutward size="24" />
@@ -150,15 +165,19 @@ function DescriptionContent({ type }: { type: string }) {
             with AI models.
           </p>
           <TechStack type={type} />
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-x-6 gap-y-4 flex-wrap">
             <Link
               href="https://syllabustocalendar.com"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-80 hover:opacity-100"
             >
               View website <MdArrowOutward size="24" />
             </Link>
             <Link
               href="https://github.com/RayChu83/syllabustocalendar"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-lg flex items-center gap-2 w-fit hover:gap-3 transition-all duration-300 opacity-60 hover:opacity-80"
             >
               View source code <MdArrowOutward size="24" />
@@ -207,7 +226,24 @@ export default function WorkDescriptions({ type }: { type: string }) {
 
   return (
     <div ref={ref}>
-      <DescriptionContent type={type} />
+      {DESCRIBED_PROJECTS.map((project) => (
+        // `hidden`, not unmounted. Rendering only the centred project meant
+        // the served HTML carried exactly one description — whichever card the
+        // carousel opens on — and the other two existed nowhere until a
+        // visitor scrolled the carousel. Two of the three things this site is
+        // about, one of them a whole internship, were invisible to anything
+        // that reads the document rather than driving it.
+        //
+        // All three are in the markup now and the attribute decides which one
+        // is shown, which is how a carousel is supposed to be built anyway:
+        // `hidden` takes the other two out of the accessibility tree and out
+        // of the tab order in one go, so a screen reader meets one description
+        // at a time exactly as a sighted visitor does. The crossfade is
+        // untouched — it tweens the wrapper, not the panels.
+        <div key={project} hidden={project !== type}>
+          <DescriptionContent type={project} />
+        </div>
+      ))}
     </div>
   );
 }

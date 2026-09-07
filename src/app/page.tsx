@@ -41,13 +41,19 @@ export default function Home() {
           Without the same radius here, the corner reveals this wrapper's own
           white fill instead of the footer parked behind the whole layer, and
           the intended "footer peeking through" reads as a plain white notch. */}
-      <div className="relative z-10 bg-white rounded-b-[4rem]">
+      {/* A `<main>` rather than a `<div>`. The element already was the page's
+          content — everything between the floating nav and the footer — and
+          saying so costs nothing: it gives assistive technology the landmark
+          to jump to, and it tells a crawler which part of the document is the
+          page rather than the chrome around it. There was no `<main>` anywhere
+          on the site before this. */}
+      <main className="relative z-10 bg-white rounded-b-[4rem]">
         <div className="relative z-10 min-h-dvh flex flex-col">
           <Header />
           <HeroHeadshot />
         </div>
         <DeferredWork />
-      </div>
+      </main>
       <Footer />
     </>
   );
