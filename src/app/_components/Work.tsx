@@ -1311,15 +1311,11 @@ export default function Work() {
               // the vertical padding here is not decoration, it is the headroom that
               // keeps their top and bottom edges from being sliced off.
               //
-              // No wheel handler any more. Translating vertical wheel deltas into
-              // horizontal scroll meant calling `preventDefault` on every mostly
-              // vertical gesture over the scroller — including once the carousel
-              // had run out of cards in that direction — and since this sits in
-              // the middle of a full-height section, that is where the cursor
-              // usually is. The page stopped scrolling until the visitor thought
-              // to move the pointer off it. Mouse users get the arrows below
-              // instead, which is a control they can see.
-              className="scrollbar-hidden flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+              // Horizontal gestures are disabled because pinch-zooming mid
+              // carousel swipe can trigger a ScrollTrigger refresh that jumps
+              // the page back toward the hero. Arrows, dots and keyboard
+              // navigation still move the scroll container programmatically.
+              className="flex snap-x snap-mandatory overflow-x-hidden overflow-y-hidden py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
             >
               {/*
                 No `perspective` or `preserve-3d` anywhere above the cards. Either
