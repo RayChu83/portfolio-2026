@@ -1311,11 +1311,12 @@ export default function Work() {
               // the vertical padding here is not decoration, it is the headroom that
               // keeps their top and bottom edges from being sliced off.
               //
-              // Horizontal gestures are disabled because pinch-zooming mid
-              // carousel swipe can trigger a ScrollTrigger refresh that jumps
-              // the page back toward the hero. Arrows, dots and keyboard
-              // navigation still move the scroll container programmatically.
-              className="flex snap-x snap-mandatory overflow-x-hidden overflow-y-hidden py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+              // The x-axis stays scrollable for `scrollTo`/`scrollLeft`.
+              // Horizontal touch panning is what gets withheld: mobile
+              // browsers are not consistent about programmatic scroll on an
+              // `overflow-x-hidden` axis, but `touch-action` can keep vertical
+              // page scrolling and pinch zoom while rejecting carousel swipes.
+              className="scrollbar-hidden flex snap-x snap-mandatory [touch-action:pan-y_pinch-zoom] overflow-x-auto overflow-y-hidden overscroll-x-none py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
             >
               {/*
                 No `perspective` or `preserve-3d` anywhere above the cards. Either
