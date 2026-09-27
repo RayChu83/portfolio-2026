@@ -54,8 +54,7 @@ const EASE = "cubic-bezier(0.76, 0, 0.24, 1)";
  * rather than inside any of them — see `page.tsx`.
  *
  * Layering: the sheet is `z-90` and the trigger `z-95`, so the panel covers
- * the page but never the control that closes it. Both stay under
- * `PageLoader`'s `z-100` gate, which should cover them like everything else.
+ * the page but never the control that closes it.
  *
  * The open/close motion is a CSS transition rather than a GSAP timeline on
  * purpose: it is one transform per element, driven entirely by a boolean this
@@ -194,9 +193,12 @@ export default function SocialLinks() {
         className="fixed top-0 right-0 z-95 cursor-pointer p-6 text-white mix-blend-difference transition-transform duration-200 hover:scale-110 focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-current sm:p-8 motion-reduce:transition-none motion-reduce:hover:scale-100"
       >
         {open ? (
-          <RxCross1 className="size-8 sm:size-10" aria-hidden />
+          <RxCross1 className="size-6 sm:size-8 lg:size-10" aria-hidden />
         ) : (
-          <RxHamburgerMenu className="size-8 sm:size-10" aria-hidden />
+          <RxHamburgerMenu
+            className="size-6 sm:size-8 lg:size-10"
+            aria-hidden
+          />
         )}
       </button>
     </>

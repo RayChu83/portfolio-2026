@@ -16,8 +16,8 @@ const QUERY = "(prefers-reduced-motion: reduce)";
  * This is the render-time half of the decision. Where an animation's setup
  * genuinely needs to branch — two timelines, both real, that have to be built
  * and torn down as the preference changes — reach for `gsap.matchMedia`
- * directly instead, off the same query string; see `HeroAnimated.tsx` for
- * that pattern. Use this hook where a component needs the plain boolean: to
+ * directly instead, off the same query string; see `Header.tsx` for that
+ * pattern. Use this hook where a component needs the plain boolean: to
  * change what it renders, to read inside an effect that already re-runs off
  * other dependencies, or where one of the two branches is simply the absence
  * of the animation, which `matchMedia` has nothing to offer.
