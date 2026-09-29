@@ -21,20 +21,13 @@ export default function Home() {
           between sections; take either away and the footer is visible through
           the hero from the first frame.
 
-          `rounded-b-[4rem]` matches `Work`'s own bottom radius exactly, and
-          it has to: `Work`'s rounded corner only cuts into *its own* black
-          background, so whatever sits directly behind that cut — this
-          wrapper's `bg-white`, opaque and square-cornered — is what fills it.
-          Without the same radius here, the corner reveals this wrapper's own
-          white fill instead of the footer parked behind the whole layer, and
-          the intended "footer peeking through" reads as a plain white notch. */}
       {/* A `<main>` rather than a `<div>`. The element already was the page's
           content — everything between the floating nav and the footer — and
           saying so costs nothing: it gives assistive technology the landmark
           to jump to, and it tells a crawler which part of the document is the
           page rather than the chrome around it. There was no `<main>` anywhere
           on the site before this. */}
-      <main className="relative z-10 bg-white rounded-b-[4rem]">
+      <main className="relative z-10 bg-white">
         <Header />
         <DeferredWork />
       </main>

@@ -8,7 +8,7 @@ import { RxCross1, RxHamburgerMenu } from "react-icons/rx";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 
 const LINKS = [
-  { href: "mailto:chu.ray1219@gmail.com", label: "Email" },
+  { href: "mailto:chu.ray1219@gmail.com", label: "Send an Email" },
   { href: "https://www.linkedin.com/in/raychu83/", label: "LinkedIn" },
   { href: "https://github.com/RayChu83", label: "GitHub" },
   { href: RESUME_PATH, label: "Résumé" },

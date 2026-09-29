@@ -1,1857 +1,332 @@
 "use client";
 
 import { useGSAP } from "@gsap/react";
-import { useScrollLock } from "@base-ui/utils/useScrollLock";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import Image from "next/image";
-import type { KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  BsArrowsFullscreen,
-  BsPauseFill,
-  BsPlayFill,
-  BsVolumeMuteFill,
-  BsVolumeUpFill,
-  BsX,
-} from "react-icons/bs";
-import { useMediaQuery } from "../_hooks/useMediaQuery";
+import { BsVolumeMuteFill } from "react-icons/bs";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
-import WorkDescriptions from "./WorkDescriptions";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
 // A mobile address bar sliding away is a viewport resize, and a resize is a
-// full ScrollTrigger refresh — which re-measures every trigger against a
-// viewport that is only briefly that size. Everything on this page is sized
-// in `dvh` and absorbs the change on its own; this stops the refresh storm.
+// full ScrollTrigger refresh. The section is sized in `dvh` and absorbs the
+// change on its own, so the refresh is skipped.
 ScrollTrigger.config({ ignoreMobileResize: true });
 
 /**
- * Which visitors get the cheaper build of the carousel — the same query, for
- * the same reasons, as the hero's COMPACT: `max-width` catches the phone,
- * `pointer: coarse` catches the tablet that reports a desktop viewport while
- * carrying a phone's GPU. Under it the cards keep the whole transform arc —
- * rotation, recession, scale, dimming — and drop only the layers a phone
- * cannot composite: the blur, the radial dissolve mask, the dust and the
- * grain. See PERFORMANCE-AUDIT.md §5, fix 1.3.
- */
-const COMPACT = "(max-width: 1023px), (pointer: coarse)";
-
-/**
- * How long the background takes to settle into its new colour once the
- * section crosses the trigger point.
+ * The work on display. Image paths match the files in `public/` exactly, case
+ * included — the local filesystem is case-insensitive but the deploy target is
+ * not, so a casing slip is a 404 that only ever shows up in production.
  *
- * This is a plain eased tween, not a `scrub` — the trigger only reports a
- * boolean (past the line or not), so the fade always runs this same duration
- * regardless of how fast or slow the scroll gesture that crossed the line
- * was. Scrubbing would tie the fade's progress to scroll position instead,
- * which is the coupling this is deliberately avoiding.
+ * `summary` is one short line: the role and what the work was about. The copy
+ * is always in the markup (only visually collapsed on inactive rows), so it is
+ * present in the server-rendered HTML for crawlers.
  */
-const FADE_DURATION = 0.6;
-
-/**
- * How long the section's contents lag the ground they sit on, in seconds.
- *
- * The two fades are the same length and the same ease; only their starts are
- * staggered, and the stagger flips with the direction. Going dark the ground
- * moves first and the contents follow; coming back to white the contents leave
- * first and the ground follows them.
- *
- * That ordering is a legibility constraint rather than a flourish. Everything
- * in here is white — the heading, the dots, the description — so on a white
- * ground it is invisible, and the two fades crossing simultaneously means the
- * content is at its most transparent exactly while the ground behind it is at
- * its lightest. Letting the ground darken slightly first, and letting the
- * content go slightly first on the way back, keeps the text on a ground it can
- * be read against for the whole of both transitions.
- */
-const CONTENT_FADE_DELAY = 0.15;
-
-const BLACK = "#000000";
-const WHITE = "#FFFFFF";
-
-/**
- * The projects on display. Image paths are matched to the files in `public/`
- * exactly, case included — the local filesystem is case-insensitive but the
- * deploy target is not, so a casing slip here is a 404 that only ever shows
- * up in production.
- *
- * WebP sources rather than the PNGs these used to be. `/_next/image` re-encodes
- * whatever it is handed, so the bytes a visitor downloads were already modern
- * either way — what changes is everything upstream of that: 1.3 MB of PNG in
- * the repository and in every deploy became 156 KB, and the optimiser has an
- * eighth as much to decode on a cold cache. At the 720 px these ever render
- * (see `sizes` below) the re-encode is invisible; the sources were 1920 px
- * screenshots being downscaled regardless.
- */
-const PROJECTS = [
+const WORK = [
   {
     title: "Blitz",
+    kind: "Internship",
+    when: "Mar 2026 – Present",
+    summary:
+      "Software Engineer Intern rebuilding a payouts platform's front end.",
     image: "/Blitz.webp",
+    href: "https://useblitz.co",
   },
   {
     title: "Unlevered",
+    kind: "Internship",
+    when: "Jul 2024 – Jan 2025",
+    summary:
+      "Software Engineer Intern building AI summaries for financial filings.",
     image: "/Unlevered.webp",
-    video: "/Unlevered Product Showcase.mp4",
+    video: "/Unlevered%20Product%20Showcase.mp4",
   },
   {
     title: "Syllabus to Calendar",
+    kind: "Project",
+    when: "Personal project",
+    summary: "Turns college syllabus PDFs into Google Calendar events.",
     image: "/Syllabus_To_Calendar.webp",
+    href: "https://syllabustocalendar.com",
   },
-];
+] as const;
 
-/**
- * Whichever card the carousel opens on: the first one, so the rank reads left
- * to right from its actual beginning.
- *
- * Opening on the middle card put the carousel at rest half-way through itself,
- * with a project already passed off to the left — nothing on screen said which
- * end the list started at, and the first project was the one a visitor was
- * least likely to reach. First is also the only index where "where it opens"
- * and "where the list starts" are the same place.
- *
- * Zero is the left end of the scroll range as well as the first card, and that
- * is not a coincidence: the track's horizontal padding is exactly what a card
- * needs to reach the centre (see the `px-[calc(...)]` on the track), so
- * centring card 0 *is* `scrollLeft: 0`. The carousel opens flush against its
- * own start with nothing scrolled past.
- */
-const START_INDEX = 0;
+/** Type scale shared with the hero so the two sections read as one voice. */
+const DISPLAY = "text-4xl sm:text-5xl md:text-6xl xl:text-7xl 2xl:text-8xl";
 
-/**
- * The depth model: cover flow, so the viewer stands in *front* of the rank
- * rather than inside it. The centred card is nearest, largest, square to the
- * screen and fully lit; everything either side of it recedes — turning away,
- * travelling back along `z`, shrinking, dimming, desaturating and softening.
- *
- * This is the inverse of the arrangement that used to be here, where the
- * centre sat at the back of a cylinder and the flanks rode *forward* and grew.
- * That version had no depth cue pointing the right way: the cards the eye was
- * meant to read as further away were the biggest and closest things on screen,
- * so the only thing separating them from the centre was a hard 70° rotation.
- * Rotation alone is a weak depth cue and a harsh one — hence the flat, cut-out
- * look. Every channel below now moves the same way at once, which is what
- * actually reads as distance.
- *
- * The sign convention worth pinning down: `rotateY` is positive when an
- * element's right edge swings *away*. A card to the right of centre (positive
- * delta) should turn its left edge toward the viewer and its right edge away,
- * which is a positive rotation — so unlike the old inward-facing arrangement,
- * the sign here is *not* negated.
- */
-const MAX_ROTATE_DEG = 42;
-/**
- * How far back the flanks travel, in px. Negative `z` — away from the camera —
- * so perspective shrinks them on its own, before `SCALE_PER_CARD` is applied.
- */
-const MAX_RECESS_Z = 300;
-/**
- * What fraction of its size a card keeps per whole card-step away from centre
- * — so scale is `SCALE_PER_CARD ^ distance`, on top of whatever shrink
- * receding along `z` already wins through perspective.
- *
- * Geometric for the same reason the brightness is, and it matters more here than
- * anywhere else because scale is the only channel that shrinks a card
- * *vertically*. `rotateY` foreshortens width — dramatically, since `cos 29°`
- * and `cos 38°` are quite different — so a rank driven mostly by rotation
- * looks like it is receding when measured across but holds almost the same
- * height throughout, which reads as cards turning in place rather than moving
- * away. The old linear drop off the saturating depth curve took only 6% of
- * height off between the first neighbour and the card behind it, and 2% for
- * the one after that. Compounding gives every step the same honest ratio.
- */
-const SCALE_PER_CARD = 0.84;
-/**
- * How fast depth accumulates with distance from centre, in card pitches.
- *
- * The curve is `1 - e^(-distance / FALLOFF)`, which is continuous and never
- * actually reaches 1 — deliberately, because "continuous depth scaling" is the
- * point. The previous model clamped distance at one pitch, so every card one
- * pitch out or further collapsed onto an identical, fully saturated pose: a
- * card two pitches away looked exactly like its neighbour one pitch away, and
- * the rank read as two flat planes rather than a receding line. Here each
- * further card keeps getting a little smaller, dimmer and further back.
- */
-const DEPTH_FALLOFF = 0.85;
-/**
- * How much further than one pitch from centre a card may ever *appear*, in
- * pitches, however far out it actually is.
- *
- * Layout spacing is fixed: every card sits exactly one pitch from the next,
- * measured on its untransformed width, and nothing the arc does to the face
- * changes that. So on the first or last card the one at the far end sits a
- * full two pitches out — the better part of a screen away — and simply leaves,
- * which is the opposite of the receding-into-the-distance reading the depth
- * curve is going for. Distance should compress as things recede, not stay
- * linear.
- *
- * Only the part *past* the first neighbour is compressed, and it is
- * compressed onto an asymptote: no card ever appears further than
- * `1 + SPREAD_TAIL` pitches out, so the rank always ends in a bunched stack
- * near the flanks rather than a line marching off screen. Leaving the first
- * pitch alone means the resting three-card composition is untouched — this
- * changes only what happens at the ends.
- *
- * The join at one pitch is smooth in both value and slope: the tail's
- * derivative there is `SPREAD_TAIL * (1 / SPREAD_TAIL) = 1`, matching the
- * linear part it continues from, so nothing kinks as a card crosses it.
- */
-const SPREAD_TAIL = 0.55;
-/**
- * What fraction of its brightness a card keeps per whole card-step away from
- * centre — so brightness is `BRIGHTNESS_PER_CARD ^ distance`.
- *
- * Brightness rather than opacity: fading a card out makes it *transparent*, so
- * whatever sits behind it — the next card in the rank, the black ground —
- * shows through and mixes into it, which reads as a ghost rather than as an
- * object in shadow. Dimming keeps the card opaque and simply lights it less,
- * which is what actually happens to something further from the light, and it
- * keeps an overlap reading as one solid card in front of another.
- *
- * Geometric rather than a linear drop off the saturating depth curve, because
- * that curve has spent most of its range by the first neighbour: it put the
- * neighbour at 0.62 and the card *behind it* at 0.50, a gap far too small to
- * read as one being further away than the other, especially where the two
- * overlap. Compounding per step keeps every card distinctly darker than the
- * one in front of it however deep the rank goes — 0.60, then 0.36, then 0.22.
- */
-const BRIGHTNESS_PER_CARD = 0.6;
-/** How out-of-focus a receding card gets — a soft focal falloff, not a smear. */
-const MAX_BLUR_PX = 3.5;
-/**
- * Atmospheric perspective: distant things lose contrast and colour toward the
- * background rather than staying vivid. Dimming and desaturating together is
- * most of what makes the recession read as *lighting* rather than as a filter
- * — and on a black ground, dimming is also what stops a light-toned card from
- * punching a bright hole in the composition.
- */
-const MAX_DIM = 0.45;
-const MAX_DESATURATE = 0.5;
-/**
- * How visible the grain texture gets at depth. Very low now: it exists to keep
- * a receding card from looking like clean flat colour, not to be a texture in
- * its own right. At the near-opaque value it used to carry, the grey
- * `hard-light` wash was a high-contrast layer of its own that fought both the
- * image under it and the black behind it.
- */
-const MAX_GRAIN_OPACITY = 0.12;
-/** How strong the dust ever gets. An accent at the dissolving edge, no more. */
-const MAX_DUST_OPACITY = 0.32;
-/**
- * `--depth` is quantised to this step before being written.
- *
- * Every distinct value re-rasterises the radial masks on the card, which is
- * real work the compositor cannot skip. The eye cannot resolve a finer step
- * than this on a fade, so rounding to it drops the great majority of those
- * re-rasterisations for no visible cost.
- */
-const DEPTH_STEP = 0.02;
-/**
- * Focal length of the projection, in px.
- *
- * Lives on each card rather than once on the scroller, and that is what makes
- * the rank stack in the right order — see `BASE_Z_INDEX`. `perspective` on an
- * ancestor would put every card and face into one shared 3D rendering context;
- * on the card itself it applies to that card's own contents only, so the cards
- * remain plain 2D siblings of each other.
- *
- * A per-card perspective would normally *change* the picture, not just its
- * painting order: the vanishing point would move to each card's own centre, so
- * every flank would be projected head-on and the asymmetry that makes a card
- * look like it is turning toward the viewer would vanish. `perspectiveOrigin`
- * is therefore re-aimed at the scroller's centre every frame, which reproduces
- * the shared projection exactly — same focal length, same vanishing point.
- */
-const PERSPECTIVE = 1400;
-/**
- * The stacking order the centred card gets; every other card sits below it by
- * however far out it is.
- *
- * Explicit rather than left to the browser's 3D depth sorting, because depth
- * sorting cannot do this job. Inside a 3D rendering context painting order
- * comes from sorted `z` and `z-index` does not order siblings at all; but the
- * faces are not sortable either, because each one carries a grouping property
- * — `opacity < 1` before, `filter` now — which flattens it into a group that
- * composites in document order. The result was the last card in the DOM
- * painting over both others whatever its transform said: correct-looking to
- * the right of centre, backwards to the left of it.
- *
- * Moving `perspective` onto the cards (see `PERSPECTIVE`) dissolves the shared
- * 3D context, which turns this back into an ordinary 2D stacking question that
- * `z-index` answers reliably — with the ordering driven by the same distance
- * the rest of the arc is derived from, so it cannot disagree with the poses.
- *
- * Written on the untransformed snap box rather than the face: `z-index` only
- * orders an element against its siblings, and the faces are each an only
- * child, so a value there would order nothing at all.
- */
-const BASE_Z_INDEX = 1000;
-/** Edge length of the dust tile, in px. Larger tiles read as coarser flecks. */
-const DUST_TILE = 280;
-
-/**
- * The particle stencil.
- *
- * Softened from the hard-edged version: a `linear` alpha transfer with a
- * modest slope instead of a `discrete` one, so grains have falloff at their
- * edges and the field reads as suspended dust rather than as a dither pattern
- * stamped over the image. The old stark stencil was legible as *noise* — a
- * texture with its own contrast, competing with the photograph and with the
- * background instead of belonging to either.
- */
-const DUST_MASK = `url("data:image/svg+xml,${encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' width='280' height='280'>" +
-    "<filter id='d'>" +
-    "<feTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='3' seed='11' stitchTiles='stitch'/>" +
-    "<feColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 -0.32'/>" +
-    "<feComponentTransfer><feFuncA type='linear' slope='2.4' intercept='0'/></feComponentTransfer>" +
-    "</filter>" +
-    "<rect width='100%' height='100%' filter='url(#d)'/>" +
-    "</svg>",
-)}")`;
-
-/** How far the card is into the depth curve, 0–1. Set per card on the face. */
-const DEPTH = "var(--depth, 0)";
-/**
- * Where the card's surviving core sits, horizontally.
- *
- * Pushed toward the *inner* edge — the side facing the centre — so the radial
- * falloff eats the outward-facing half hardest. That keeps the vignette from
- * reading as a symmetrical spotlight pasted on every card and instead makes
- * each flank appear to trail off in the direction it is receding.
- */
-const FOCUS_X = "var(--focus-x, 50%)";
-
-/**
- * The image's mask: a radial alpha falloff that closes in as depth rises.
- *
- * Radial rather than the linear wipe this replaces. A linear ramp leaves the
- * card's other three sides as hard, straight, full-contrast edges, so however
- * far the fade travelled the card still ended in a crisp rectangle — the
- * "abruptly cut off" reading. An ellipse has no sides to leave behind: it
- * takes the corners and the top and bottom in at the same time, and the card
- * dissolves into the background as a soft shape rather than a clipped one.
- *
- * At depth 0 the stops sit at 100%/135%, so the mask is a no-op and the
- * centred card is provably untouched.
- */
-const IMAGE_MASK =
-  `radial-gradient(ellipse 118% 128% at ${FOCUS_X} 50%,` +
-  ` #000 calc(100% - ${DEPTH} * 58%),` +
-  ` transparent calc(135% - ${DEPTH} * 50%))`;
-
-/**
- * The dust layer's mask: the particle stencil intersected with a radial band
- * tracking just outside the image's own falloff.
- *
- * The band is why the stencil can be used at all. Intersecting noise with the
- * *image* would punch holes right across a centred card; windowing it to the
- * zone the image is currently dissolving through means the specks only ever
- * exist where there is a dissolve for them to belong to.
- */
-const DUST_LAYER_MASK =
-  `${DUST_MASK}, radial-gradient(ellipse 118% 128% at ${FOCUS_X} 50%,` +
-  ` transparent calc(100% - ${DEPTH} * 58%),` +
-  ` #000 calc(122% - ${DEPTH} * 52%), transparent 150%)`;
-
-/**
- * The grain's mask: the same radial falloff, so the texture gathers where the
- * card is breaking up and stays off the part still meant to read as a
- * photograph.
- */
-const GRAIN_MASK =
-  `radial-gradient(ellipse 118% 128% at ${FOCUS_X} 50%,` +
-  ` transparent calc(60% - ${DEPTH} * 40%), #000 110%)`;
-
-/**
- * The fade at the scroller's own left and right edges.
- *
- * Without this the track is clipped by the scroller's box, so a card leaving
- * the viewport ends on a dead vertical line at the exact pixel the overflow
- * starts — the single most artificial edge in the composition, and one no
- * amount of per-card treatment can soften because it is not the card's edge
- * at all. Masking the container instead means cards leave by dissolving.
- *
- * On a wrapper rather than on the scroller itself: `mask-image` makes an
- * element a grouping element, and the thing being grouped here would be a
- * scrolling box whose contents change every frame. Kept one level out, the
- * mask is a static fade over a static rectangle.
- */
-const EDGE_FADE =
-  "linear-gradient(to right, transparent 0%, #000 14%," +
-  " #000 86%, transparent 100%)";
-
-/**
- * A small tile of fractal noise, reused as every card's grain texture rather
- * than generated per-card — it's a fixed pattern, not something that needs
- * to vary by card or by frame. Run through a steep `feComponentTransfer` so
- * the noise reads as stark black/white grain rather than the soft grey mush
- * raw `feTurbulence` output looks like at low opacity.
- */
-const GRAIN_BACKGROUND = `url("data:image/svg+xml,${encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'>" +
-    "<filter id='n'>" +
-    "<feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch' result='noise'/>" +
-    "<feComponentTransfer in='noise'>" +
-    "<feFuncR type='linear' slope='4' intercept='-1.5'/>" +
-    "<feFuncG type='linear' slope='4' intercept='-1.5'/>" +
-    "<feFuncB type='linear' slope='4' intercept='-1.5'/>" +
-    "</feComponentTransfer>" +
-    "</filter>" +
-    "<rect width='100%' height='100%' filter='url(#n)'/>" +
-    "</svg>",
-)}")`;
-
-/** `m:ss`, for the preview dialog's timeline — never negative, never `NaN:NaN`. */
-function formatTime(seconds: number) {
-  const clamped = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
-  const mins = Math.floor(clamped / 60);
-  const secs = Math.floor(clamped % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
+/** A crosshair that marks a corner of the media frame. */
+function Tick({ className }: { className: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute size-4 ${className}`}
+    >
+      <span className="absolute left-1/2 top-0 h-full w-px bg-neutral-900" />
+      <span className="absolute left-0 top-1/2 h-px w-full bg-neutral-900" />
+    </span>
+  );
 }
 
 export default function Work() {
-  const sectionRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
   /**
-   * Everything the section draws, as one element — so the contents can fade
-   * with the ground without every individual child needing its own tween, and
-   * so the fade is a single compositor-level opacity rather than a dozen.
+   * Index of the project whose video currently has sound on, or `null`. Sound
+   * is opt-in per visit: selecting anything else drops it back to `null`, so
+   * returning to the video never starts it playing out loud.
    */
-  const contentRef = useRef<HTMLDivElement>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
-  /**
-   * The snap boxes. These are measured — `offsetLeft`/`offsetWidth` — and they
-   * are what CSS scroll-snap aligns, so nothing may ever transform them.
-   */
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
-  /**
-   * The visible faces, one inside each card, and the only things the arc
-   * transforms — see the note on `updateArc` for why the two are separate.
-   */
-  const faceRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const imgRefs = useRef<(HTMLImageElement | HTMLVideoElement | null)[]>([]);
+  const [unmutedIndex, setUnmutedIndex] = useState<number | null>(null);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  /** The `<video>` inside the fullscreen preview dialog. */
-  const fullscreenVideoRef = useRef<HTMLVideoElement>(null);
-  /** The preview dialog's backdrop — faded independently of the video panel. */
-  const previewBackdropRef = useRef<HTMLDivElement>(null);
-  /** Per-card dust overlay — see `MAX_DUST_OPACITY`. */
-  const dustRefs = useRef<(HTMLDivElement | null)[]>([]);
-  /** Per-card grain overlay — see `MAX_GRAIN_OPACITY`. */
-  const grainRefs = useRef<(HTMLDivElement | null)[]>([]);
-  /** Last `--depth` written per card, so an unchanged value can be skipped. */
-  const depthValues = useRef<number[]>([]);
-  /** Last `z-index` written per card — same reason. */
-  const zIndexValues = useRef<number[]>([]);
-  /** Last `perspective-origin` x written per card, in whole px — same reason. */
-  const originValues = useRef<number[]>([]);
-
+  const trackRef = useRef<HTMLDivElement>(null);
+  /** The pin's trigger — `null` under reduced motion, where nothing is pinned. */
+  const triggerRef = useRef<ScrollTrigger | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
-  const compact = useMediaQuery(COMPACT);
-  const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
-  /** Per-card play/mute state, mirrored from the `<video>` element's own events. */
-  const [videoUiState, setVideoUiState] = useState<
-    Record<number, { playing: boolean; muted: boolean }>
-  >({});
-  /**
-   * The preview dialog's own play/mute/progress state — separate from
-   * `videoUiState` because that is keyed to the carousel cards, and the
-   * dialog's `<video>` is a different element with no native controls of its
-   * own to fall back on.
-   */
-  const [previewPlaying, setPreviewPlaying] = useState(true);
-  const [previewMuted, setPreviewMuted] = useState(false);
-  const [previewTime, setPreviewTime] = useState({ current: 0, duration: 0 });
 
-  /**
-   * Index into `PROJECTS` of whichever card currently sits nearest the
-   * scroller's centre — drives the description copy, the dots, and which of
-   * the arrows are disabled. Mirrored in a ref so the scroll handler can
-   * compare against it without re-rendering; the `useState` only fires on the
-   * frames where the centred card actually changes.
-   */
-  const centeredIndexRef = useRef(START_INDEX);
-  const [centeredIndex, setCenteredIndex] = useState(START_INDEX);
-  /**
-   * Like `centeredIndex`, but only updated once the scroller has come to
-   * rest — it feeds the `aria-live` region, which would otherwise announce
-   * every project the carousel merely passes on its way somewhere else.
-   */
-  const [settledIndex, setSettledIndex] = useState(START_INDEX);
-  /**
-   * `compact` reads `false` during hydration — the server has no viewport —
-   * so gating the dust and grain on it alone would still put their markup,
-   * and the image fetch the dust layer's `background-image` starts, into a
-   * phone's first paint. They wait for this instead: the first client render
-   * matches the server's (no overlays), and the commit after it mounts them
-   * only where `compact` is genuinely false.
-   */
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
-
-  /**
-   * Autoplay the centered video, pause all others. This keeps videos from
-   * playing off-screen and consuming bandwidth/CPU. Skipped while the
-   * fullscreen preview is open — that video is the one carrying sound, and
-   * this effect would otherwise fight it every time `centeredIndex` changes.
-   */
+  // Only the selected video plays; the 70 MB file is never fetched until it
+  // is first selected (`preload="none"`).
   useEffect(() => {
-    if (fullscreenIndex !== null) return;
     videoRefs.current.forEach((video, index) => {
       if (!video) return;
-      if (index === centeredIndex) {
+      if (index === active && !prefersReducedMotion) {
         video.play().catch(() => {});
       } else {
         video.pause();
       }
     });
-  }, [centeredIndex, fullscreenIndex]);
+  }, [active, prefersReducedMotion]);
 
-  // The inline card behind the preview is muted, but pausing it while the
-  // preview plays still saves the decode work for a frame nobody can see.
-  // No cleanup that resumes it on close — closing always leaves the card
-  // paused, handed back at whatever point the preview reached; see
-  // `closeFullscreen`.
-  useEffect(() => {
-    if (fullscreenIndex === null) return;
-    videoRefs.current[fullscreenIndex]?.pause();
-  }, [fullscreenIndex]);
-
-  /**
-   * The backdrop fading in whenever the dialog opens — reversed, roughly, by
-   * the tween `closeFullscreen` plays on the way out. Reads from
-   * `fullscreenIndex` rather than a mount/unmount lifecycle because the
-   * dialog's JSX is itself gated on that value; this only has to supply the
-   * *first* frame's motion; React has already done the mounting.
-   *
-   * The video panel is deliberately not handled here — see the `opacity-0`
-   * note on its `className` for why its entrance waits for `onLoadedMetadata`
-   * instead of starting the moment this effect runs.
-   */
-  useGSAP(
-    () => {
-      if (fullscreenIndex === null || prefersReducedMotion) return;
-
-      gsap.set(previewBackdropRef.current, { opacity: 0 });
-      gsap.to(previewBackdropRef.current, {
-        opacity: 1,
-        duration: 0.3,
-        ease: "power2.out",
-      });
-    },
-    { dependencies: [fullscreenIndex, prefersReducedMotion] },
-  );
-
-  /** Guards against a second close arriving mid-exit-tween — Escape held down. */
-  const closingFullscreenRef = useRef(false);
-
-  /**
-   * Closes the preview, carrying its position back to the card it was opened
-   * from and leaving that card paused there — rather than resuming playback
-   * mid-carousel the moment the visitor looks away from the video.
-   *
-   * Reads `fullscreenVideoRef` up front rather than in the tween's
-   * `onComplete`: the dialog's `<video>` stays mounted for the exit
-   * animation's duration, but the moment `setFullscreenIndex(null)` actually
-   * fires — inside `finish`, at the very end — it unmounts and the ref goes
-   * null, so anything reading it has to run before that point.
-   */
-  const closeFullscreen = useCallback(() => {
-    if (fullscreenIndex === null || closingFullscreenRef.current) return;
-    const inlineVideo = videoRefs.current[fullscreenIndex];
-    const previewVideo = fullscreenVideoRef.current;
-    const capturedTime = previewVideo?.currentTime;
-
-    const finish = () => {
-      closingFullscreenRef.current = false;
-      if (inlineVideo && capturedTime !== undefined) {
-        inlineVideo.currentTime = capturedTime;
-      }
-      inlineVideo?.pause();
-      setFullscreenIndex(null);
-    };
-
-    if (prefersReducedMotion) {
-      finish();
-      return;
-    }
-
-    closingFullscreenRef.current = true;
-    gsap
-      .timeline({ onComplete: finish })
-      .to(
-        previewVideo,
-        { opacity: 0, scale: 0.92, duration: 0.25, ease: "power2.in" },
-        0,
-      )
-      .to(
-        previewBackdropRef.current,
-        { opacity: 0, duration: 0.25, ease: "power2.in" },
-        0,
-      );
-  }, [fullscreenIndex, prefersReducedMotion]);
-
-  // Escape closes the preview from anywhere on the page, not just while the
-  // dialog itself has focus.
-  useEffect(() => {
-    if (fullscreenIndex === null) return;
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") closeFullscreen();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [fullscreenIndex, closeFullscreen]);
-
-  // The preview sits over the page rather than replacing it, so the page
-  // underneath is still scrollable by default. A plain `document.body.style
-  // .overflow = "hidden"` used to sit here, but that hack doesn't compensate
-  // for the scrollbar disappearing (the page jitters sideways) and iOS
-  // Safari ignores it for touch scrolling outright. `useScrollLock` is Base
-  // UI's own primitive for this — already a transitive dependency of
-  // `@base-ui/react`, which this file doesn't otherwise use, so it is pulled
-  // in directly rather than reached for a whole extra library.
-  useScrollLock(fullscreenIndex !== null);
-
-  /**
-   * The card the carousel has most recently been *told* to go to, which is
-   * not the same thing as the one currently centred.
-   *
-   * Stepping has to count from here rather than from `centeredIndex`. A
-   * smooth scroll takes a few hundred milliseconds to arrive, and
-   * `centeredIndex` only catches up as the scroller physically passes each
-   * card — so two quick presses of "next" both read the same not-yet-changed
-   * `centeredIndex`, compute the same destination, and the second press does
-   * nothing. Counting from the last commanded index makes presses queue up
-   * the way a visitor expects, however fast they arrive.
-   */
-  const targetIndexRef = useRef(START_INDEX);
-
-  /**
-   * Where `scrollLeft` has to be for card `index` to sit dead centre.
-   *
-   * `offsetLeft` is measured against the track, which sits flush at the
-   * scroller's content origin, so it is already in the same coordinate space
-   * as `scrollLeft`. The track's own horizontal padding is what lets the
-   * first and last cards reach the centre at all.
-   */
-  const scrollLeftForIndex = useCallback((index: number) => {
-    const scroller = scrollerRef.current;
-    const card = cardRefs.current[index];
-    if (!scroller || !card) return 0;
-
-    return card.offsetLeft + card.offsetWidth / 2 - scroller.clientWidth / 2;
+  const select = useCallback((index: number) => {
+    setActive(index);
+    setUnmutedIndex((unmuted) => (unmuted === index ? unmuted : null));
   }, []);
 
   /**
-   * Moves the carousel so `index` is centred.
+   * The section is a tall track with the stage pinned inside it, and scroll
+   * progress through the track picks the project: one flick can no longer
+   * carry a visitor past all three, and the page is still scrolled natively —
+   * nothing is snapped or intercepted.
    *
-   * This is the *only* thing in the component that ever writes a scroll
-   * position, and it hands the work to the browser's own smooth scroll rather
-   * than easing `scrollLeft` by hand on a ticker. That matters: a per-frame
-   * loop writing `scrollLeft` toward a target of its own has no idea a finger
-   * or a trackpad is also moving the scroller, so it drags every such gesture
-   * back toward a stale target. Letting the platform own the scroll position
-   * means touch, trackpad, scrollbar, and these buttons all compose instead
-   * of competing.
+   * Under reduced motion there is no trigger at all. The track collapses to
+   * a single screen through CSS (`motion-reduce:` on the markup, so the
+   * server's HTML is already right) and selection is by hover and click.
    */
-  const scrollToIndex = useCallback(
-    (index: number) => {
-      const scroller = scrollerRef.current;
-      if (!scroller) return;
-
-      const clamped = Math.max(0, Math.min(index, PROJECTS.length - 1));
-      targetIndexRef.current = clamped;
-      scroller.scrollTo({
-        left: scrollLeftForIndex(clamped),
-        behavior: prefersReducedMotion ? "auto" : "smooth",
-      });
-    },
-    [prefersReducedMotion, scrollLeftForIndex],
-  );
-
-  /** Moves `delta` cards from the last commanded card — see `targetIndexRef`. */
-  const stepBy = useCallback(
-    (delta: number) => scrollToIndex(targetIndexRef.current + delta),
-    [scrollToIndex],
-  );
-
   useGSAP(
     () => {
-      // Reduced motion: black, permanently, and nothing watching the scroll
-      // that could ever change it.
-      //
-      // The earlier build kept the white-to-black *state* change under the
-      // preference and only dropped the tween that eased between the two, on
-      // the reasoning that a hard cut is not motion. But a whole section
-      // inverting the instant its top passes the middle of the viewport is
-      // the most abrupt version of the effect, not the calmest one — it is
-      // still a full-screen change driven by scroll position, which is the
-      // coupling the preference is asking to be spared, and cutting rather
-      // than fading only removes the part that softened it. The section's own
-      // content is built for the dark ground anyway (white heading, white
-      // copy, dark cards), so black is the state it actually wants; the fade
-      // from white exists to make the transition into it feel like an arrival,
-      // and with no transition there is nothing for the white to be.
-      //
-      // So there is no ScrollTrigger on this branch at all. Not a trigger
-      // whose callbacks happen to be `set` rather than `to` — nothing to
-      // register, refresh on resize, or tear down.
-      //
-      // The `motion-reduce:bg-black` class on the section is what actually
-      // paints it, and this `set` only restates that. The class is there
-      // because the ground has to be right in the server's HTML: this hook
-      // reports `false` until the client mounts, so a build that painted the
-      // black here alone would serve every reduce-motion visitor a section on
-      // the page's white and swap it under them on hydration — a full-screen
-      // flash, which is precisely what the branch exists to avoid. The `set`
-      // then wins over any inline colour the animated branch left behind when
-      // the preference flips mid-session, which the class alone could not.
-      if (prefersReducedMotion) {
-        gsap.set(sectionRef.current, { backgroundColor: BLACK });
-        gsap.set(contentRef.current, { opacity: 1 });
-        return;
-      }
+      if (prefersReducedMotion) return;
 
-      // Both fades share a shape, so they are stated once. `overwrite` is what
-      // makes a reversal mid-transition safe: each of these owns exactly one
-      // property on exactly one element, so killing whatever else is animating
-      // it — including a sibling tween still sitting out its
-      // CONTENT_FADE_DELAY — is precisely the right thing rather than a
-      // heavy-handed one.
-      const fade = (
-        target: Element | null,
-        vars: gsap.TweenVars,
-        delay: number,
-      ) =>
-        gsap.to(target, {
-          ...vars,
-          duration: FADE_DURATION,
-          delay,
-          ease: "power2.out",
-          overwrite: true,
-        });
-
-      const toBlack = () => {
-        fade(sectionRef.current, { backgroundColor: BLACK }, 0);
-        fade(contentRef.current, { opacity: 1 }, CONTENT_FADE_DELAY);
-      };
-
-      const toWhite = () => {
-        fade(contentRef.current, { opacity: 0 }, 0);
-        fade(
-          sectionRef.current,
-          { backgroundColor: WHITE },
-          CONTENT_FADE_DELAY,
+      const sync = (self: ScrollTrigger) =>
+        select(
+          Math.min(WORK.length - 1, Math.floor(self.progress * WORK.length)),
         );
-      };
 
-      // No `scrub` here: the trigger fires once each time the section's top
-      // crosses the middle of the viewport, in either direction, and the
-      // fades above play out on their own clock from there — scrolling
-      // further, stopping, or reversing mid-fade never rewinds or resumes
-      // one partway.
       const trigger = ScrollTrigger.create({
-        trigger: sectionRef.current,
-        start: "top center",
-        onEnter: toBlack,
-        onLeaveBack: toWhite,
+        trigger: trackRef.current,
+        start: "top top",
+        end: "bottom bottom",
+        onUpdate: sync,
+        onRefresh: sync,
       });
-
-      // A toggle callback only reports a *crossing*, so a visitor who reloads
-      // part-way down the page starts past the line having never crossed it
-      // and neither callback ever runs. That was survivable while the trigger
-      // only owned a background colour — the section simply stayed on the
-      // page's white — but the contents now open at `opacity-0`, so the same
-      // gap would leave them invisible with no scroll that could bring them
-      // back. `progress` reads the position rather than a crossing, so it
-      // answers for a trigger born past its own start.
-      //
-      // Only the past-the-line case is stated. Before it, the markup is
-      // already right — no inline background, contents at `opacity-0` — and
-      // writing the white out explicitly would paint the section over
-      // whatever the page's own ground happens to be.
-      if (trigger.progress > 0) {
-        gsap.set(sectionRef.current, { backgroundColor: BLACK });
-        gsap.set(contentRef.current, { opacity: 1 });
-      }
-
-      return () => trigger.kill();
-    },
-    // The preference is read as a plain boolean rather than through
-    // `gsap.matchMedia`, because the two branches are no longer two versions
-    // of one behaviour — one of them is the absence of the behaviour. A
-    // dependency re-runs the effect on a preference change and `useGSAP`'s
-    // own context revert undoes whichever branch was standing, which is all
-    // `matchMedia` was buying here.
-    { scope: sectionRef, dependencies: [prefersReducedMotion] },
-  );
-
-  useGSAP(
-    () => {
-      const scroller = scrollerRef.current;
-      const track = trackRef.current;
-      if (!scroller || !track) return;
-
-      /**
-       * The carousel's geometry — card centres, half-widths, pitch, and the
-       * scroller's own centre — measured once here and again on real resizes,
-       * never per frame. `updateArc` used to read `offsetLeft`/`offsetWidth`
-       * off every card inside its loop, and every such read after a style
-       * write forces a synchronous layout flush: three forced reflows per
-       * scrolled frame (PERFORMANCE-AUDIT.md, P0-3b). None of these numbers
-       * can change between resizes, so the frame loop now does arithmetic
-       * against this table and reads only `scrollLeft`.
-       */
-      const metrics = {
-        scrollerCenter: 0,
-        pitch: 1,
-        /** Each card's centre x in the scroller's content space. */
-        centers: [] as number[],
-        /** Each card's half-width, for aiming `perspectiveOrigin`. */
-        halfWidths: [] as number[],
-      };
-
-      const measure = () => {
-        metrics.scrollerCenter = scroller.clientWidth / 2;
-        metrics.centers = cardRefs.current.map((card) =>
-          card ? card.offsetLeft + card.offsetWidth / 2 : 0,
-        );
-        metrics.halfWidths = cardRefs.current.map((card) =>
-          card ? card.offsetWidth / 2 : 0,
-        );
-        metrics.pitch =
-          metrics.centers.length > 1
-            ? metrics.centers[1] - metrics.centers[0] || 1
-            : (metrics.halfWidths[0] ?? 0.5) * 2 || 1;
-      };
-
-      /**
-       * Lays every card onto the arc based on how far its centre sits from
-       * the scroller's centre, in card pitches — so 0 is dead centre and ±1
-       * is one whole card away.
-       *
-       * The centre card lands at rotate 0 / z 0 / full brightness: nearest the
-       * viewer, square to the screen and fully lit. Everything either side of
-       * it turns away, travels back, shrinks, dims and softens together, by an
-       * amount that keeps growing with distance rather than saturating.
-       *
-       * The transform goes on the card's inner *face*, never on the card
-       * itself, and that split is load-bearing rather than cosmetic. CSS
-       * scroll-snap derives a snap target's snap area from its **transformed**
-       * border box, so transforming the element that carries `snap-center`
-       * moves the snap point along with it: at full sweep a flank's box is
-       * displaced sideways by more than half a card and swells by a quarter
-       * of its width. Under `snap-mandatory` the browser then pulls every
-       * scroll — including the exact, correct position the arrows and dots
-       * scroll to — onto that displaced point, landing between two projects.
-       * Worse, it is a feedback loop: scrolling changes the transforms, which
-       * moves the snap points, which changes where the scroll lands.
-       *
-       * Keeping the snap box untransformed means the browser snaps to the
-       * same layout geometry `scrollLeftForIndex` measures, and the arc is
-       * free to throw the face around inside it without consequence.
-       */
-      const updateArc = () => {
-        if (prefersReducedMotion) return;
-
-        const { scrollerCenter, pitch } = metrics;
-        // The one layout read the frame is allowed — everything else comes
-        // from the metrics table.
-        const scrollLeft = scroller.scrollLeft;
-
-        cardRefs.current.forEach((card, index) => {
-          if (!card) return;
-
-          const cardCenter = metrics.centers[index] - scrollLeft;
-          const delta = (cardCenter - scrollerCenter) / pitch;
-          const sign = Math.sign(delta);
-          // Unclamped, so a card three pitches out is still measurably
-          // further away than one two pitches out — see `DEPTH_FALLOFF`.
-          const distance = Math.abs(delta);
-          const depth = 1 - Math.exp(-distance / DEPTH_FALLOFF);
-
-          // How far out the card should *look*, which past the first
-          // neighbour is nearer than where it actually sits — see
-          // `SPREAD_TAIL`.
-          const visualDistance =
-            distance <= 1
-              ? distance
-              : 1 + SPREAD_TAIL * (1 - Math.exp(-(distance - 1) / SPREAD_TAIL));
-
-          // Nearest the centre paints highest — see `BASE_Z_INDEX`. Scaled by
-          // 100 so cards a fraction of a pitch apart still separate, and
-          // written only on change since a bare restack is otherwise free.
-          const zIndex = BASE_Z_INDEX - Math.round(distance * 100);
-          if (zIndex !== zIndexValues.current[index]) {
-            zIndexValues.current[index] = zIndex;
-            card.style.zIndex = String(zIndex);
-          }
-
-          // Aims this card's own vanishing point at the scroller's centre, so
-          // a perspective per card projects exactly as one shared perspective
-          // on the scroller did — see `PERSPECTIVE`. `perspectiveOrigin` is
-          // resolved against the card's own border box, so the scroller centre
-          // has to be expressed in the card's coordinates, which is its own
-          // half-width less however far the card sits from that centre.
-          // Rounded to the pixel: a sub-pixel change moves nothing visible but
-          // does re-project the card's whole subtree.
-          const originX = Math.round(
-            metrics.halfWidths[index] - (cardCenter - scrollerCenter),
-          );
-          if (originX !== originValues.current[index]) {
-            originValues.current[index] = originX;
-            card.style.perspectiveOrigin = `${originX}px 50%`;
-          }
-
-          const face = faceRefs.current[index];
-          if (face) {
-            gsap.set(face, {
-              // Pulls the card back toward centre by whatever the compression
-              // above took off. Layout spacing is fixed at one pitch per card
-              // whatever the card is doing visually, so without this a card
-              // two pitches out sits a literal two pitches out — full width
-              // of untransformed spacing — however small it has been drawn.
-              x: sign * (visualDistance - distance) * pitch,
-              // Not negated: a card to the right of centre turns its right
-              // edge away from the viewer, which is a positive rotation.
-              rotateY: sign * depth * MAX_ROTATE_DEG,
-              z: -depth * MAX_RECESS_Z,
-              // Uniform, so height falls away with width — see
-              // `SCALE_PER_CARD`.
-              scale: Math.pow(SCALE_PER_CARD, distance),
-              // The compact build dims by fading the whole face instead of a
-              // `brightness()` filter: opacity is applied on the compositor,
-              // a filter re-rasterises the subtree. It also stands in for
-              // the radial dissolve mask the compact card no longer carries.
-              ...(compact
-                ? { opacity: Math.pow(BRIGHTNESS_PER_CARD, distance) }
-                : {}),
-            });
-
-            // Quantised, and everything below written only when the bucket
-            // actually changes: the masks and filters downstream re-rasterise
-            // on every distinct value, so an unchanged bucket is worth the
-            // comparison to avoid. Only the transform (and the compact
-            // build's opacity) is compositor-cheap enough to set every frame
-            // regardless — which is also why the image's `blur()` now lives
-            // in this gate rather than being rewritten unquantised per frame
-            // (PERFORMANCE-AUDIT.md, P0-3).
-            const quantised = Math.round(depth / DEPTH_STEP) * DEPTH_STEP;
-
-            if (quantised !== depthValues.current[index]) {
-              depthValues.current[index] = quantised;
-
-              const img = imgRefs.current[index];
-              if (compact) {
-                // The image keeps brightness/desaturation — the cheap half of
-                // the atmospheric cue — and drops the blur, exactly as the
-                // hero's own PHOTO_BLUR reasoning prescribes for this class
-                // of device.
-                if (img) {
-                  gsap.set(img, {
-                    filter:
-                      `brightness(${1 - quantised * MAX_DIM})` +
-                      ` saturate(${1 - quantised * MAX_DESATURATE})`,
-                  });
-                }
-              } else {
-                // `setProperty` rather than `gsap.set`: CSSPlugin resolves
-                // what it is given against the element's existing computed
-                // style, and a bare custom property has no such thing to
-                // resolve against, so it silently writes nothing. These are
-                // plain string writes with nothing to interpolate — the DOM
-                // call is both the working route and the cheaper one.
-                // `toFixed` because the quantising multiply lands on binary
-                // float noise — 0.7 arrives as 0.7000000000000001, and that
-                // is the literal string the property would carry.
-                face.style.setProperty("--depth", quantised.toFixed(2));
-                // Dead centre has no outward side to aim the falloff at, so
-                // the sign there is arbitrary.
-                face.style.setProperty("--focus-x", sign < 0 ? "68%" : "32%");
-
-                // On the face rather than on the image, so the dust and
-                // grain overlays dim with the artwork they sit on instead of
-                // staying lit over a darkened card. `filter` makes the face
-                // a grouping element — which flattens *its* contents, all of
-                // which are 2D already — but leaves the face's own transform
-                // in the scroller's 3D context untouched.
-                gsap.set(face, {
-                  filter: `brightness(${Math.pow(BRIGHTNESS_PER_CARD, distance)})`,
-                });
-
-                if (img) {
-                  gsap.set(img, {
-                    filter:
-                      `blur(${quantised * MAX_BLUR_PX}px)` +
-                      ` brightness(${1 - quantised * MAX_DIM})` +
-                      ` saturate(${1 - quantised * MAX_DESATURATE})`,
-                  });
-                }
-
-                const dust = dustRefs.current[index];
-                if (dust)
-                  gsap.set(dust, { opacity: quantised * MAX_DUST_OPACITY });
-
-                const grain = grainRefs.current[index];
-                if (grain)
-                  gsap.set(grain, { opacity: quantised * MAX_GRAIN_OPACITY });
-              }
-            }
-          }
-        });
-      };
-
-      /** Reduced motion still scrolls and snaps — it just lays flat. */
-      const layFlat = () => {
-        cardRefs.current.forEach((card, index) => {
-          if (!card) return;
-          // Nothing overlaps or projects when the rank is flat, so there is no
-          // order or vanishing point to impose — but the arc may have written
-          // both before the preference changed, so they have to be cleared
-          // rather than just left alone.
-          card.style.zIndex = "";
-          card.style.perspectiveOrigin = "";
-          // `NaN` as "nothing written": it compares unequal to itself, so the
-          // arc always writes afresh if the preference flips back. Recording
-          // the value these *would* have had instead would let the centre card
-          // skip a write it genuinely needs, since the inline styles are gone.
-          zIndexValues.current[index] = NaN;
-          originValues.current[index] = NaN;
-        });
-        faceRefs.current.forEach((face, index) => {
-          if (!face) return;
-          gsap.set(face, {
-            x: 0,
-            rotateY: 0,
-            z: 0,
-            scale: 1,
-            opacity: 1,
-            filter: "none",
-          });
-          face.style.setProperty("--depth", "0");
-          depthValues.current[index] = 0;
-        });
-        for (const img of imgRefs.current) {
-          if (!img) continue;
-          gsap.set(img, { filter: "none" });
-        }
-        for (const dust of dustRefs.current) {
-          if (!dust) continue;
-          gsap.set(dust, { opacity: 0 });
-        }
-        for (const grain of grainRefs.current) {
-          if (!grain) continue;
-          gsap.set(grain, { opacity: 0 });
-        }
-      };
-
-      const applyLayout = () => {
-        if (prefersReducedMotion) layFlat();
-        else updateArc();
-      };
-
-      /** Index into `cardRefs`/`PROJECTS` of whichever card sits nearest centre. */
-      const nearestCardIndex = () => {
-        const scrollLeft = scroller.scrollLeft;
-        let best = 0;
-        let bestDistance = Infinity;
-
-        metrics.centers.forEach((center, index) => {
-          const distance = Math.abs(
-            center - scrollLeft - metrics.scrollerCenter,
-          );
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            best = index;
-          }
-        });
-
-        return best;
-      };
-
-      /**
-       * Syncs `centeredIndex` state to whichever project is nearest centre.
-       * Only actually updates React state when the centred card changes.
-       */
-      const updateCenteredIndex = () => {
-        const index = nearestCardIndex();
-        if (index !== centeredIndexRef.current) {
-          centeredIndexRef.current = index;
-          setCenteredIndex(index);
-        }
-      };
-
-      // The arc is driven off the scroller's own `scroll` event, throttled to
-      // one update per animation frame.
-      //
-      // A persistent per-frame ticker would also work and never go stale, but
-      // it burns a frame's worth of layout reads and 3D writes forever, on
-      // every card, whether or not anything has moved — for a carousel that
-      // is stationary the overwhelming majority of the time. The event fires
-      // for every source that can move this scroller (touch, trackpad,
-      // scrollbar, snap settle, and the smooth `scrollTo` the buttons issue,
-      // which dispatches throughout its animation), and nothing in this
-      // component writes `scrollLeft` behind the browser's back any more, so
-      // there is no longer a class of movement the event can miss.
-      let frame = 0;
-      // Re-bases the step counter once the scroller has actually come to rest.
-      //
-      // Without this, a visitor who swipes or drags the carousel by hand
-      // leaves `targetIndexRef` pointing at whatever was last commanded by a
-      // button, and their next arrow press jumps back to that stale place
-      // instead of stepping on from where they are now. A quiet period is a
-      // reliable enough signal for "stopped": a smooth `scrollTo` and a snap
-      // settle both dispatch continuously while they run, so neither leaves a
-      // gap this long mid-flight. (`scrollend` would say it directly, but is
-      // still missing from enough shipping Safari versions to need a fallback
-      // that would then be the thing actually doing the work.)
-      let settleTimer: number | undefined;
-      const onScroll = () => {
-        window.clearTimeout(settleTimer);
-        settleTimer = window.setTimeout(() => {
-          targetIndexRef.current = centeredIndexRef.current;
-          // The scroller is at rest — this is the one moment a screen reader
-          // should hear about the project now centred (see the live region
-          // below), rather than every project the carousel merely passed.
-          setSettledIndex(centeredIndexRef.current);
-        }, 120);
-
-        if (frame) return;
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          updateArc();
-          updateCenteredIndex();
-        });
-      };
-
-      const placeAtIndex = (index: number) => {
-        scroller.scrollLeft = metrics.centers[index] - metrics.scrollerCenter;
-        centeredIndexRef.current = index;
-        targetIndexRef.current = index;
-        setCenteredIndex(index);
-        setSettledIndex(index);
-        applyLayout();
-      };
-
-      // This effect re-runs when `compact` or the motion preference flips,
-      // and the styles the previous run wrote inline — filters, masks,
-      // opacity — belong to the build that just went away. Clear them and
-      // forget the caches so the new build starts from the markup.
-      cardRefs.current.forEach((card, index) => {
-        if (!card) return;
-        card.style.zIndex = "";
-        card.style.perspectiveOrigin = "";
-        zIndexValues.current[index] = NaN;
-        originValues.current[index] = NaN;
-      });
-      faceRefs.current.forEach((face, index) => {
-        if (!face) return;
-        gsap.set(face, { clearProps: "filter,opacity" });
-        face.style.removeProperty("--depth");
-        face.style.removeProperty("--focus-x");
-        depthValues.current[index] = NaN;
-      });
-      for (const img of imgRefs.current) {
-        if (img) gsap.set(img, { clearProps: "filter" });
-      }
-
-      measure();
-      placeAtIndex(START_INDEX);
-
-      // A resize changes card width and gap, which moves every card centre —
-      // so the metrics table and the old `scrollLeft` are both stale, and
-      // both are re-derived from the card that *was* centred.
-      //
-      // Two guards, both for mobile. The width check drops the resizes the
-      // address bar generates — those change only the viewport's *height*,
-      // and reacting to them meant re-centring the carousel under the
-      // visitor's finger mid-gesture. The debounce collapses the burst a
-      // real rotation or window drag produces into one re-measure at the
-      // end, instead of a re-layout per intermediate size.
-      let lastWidth = scroller.clientWidth;
-      let resizeTimer: number | undefined;
-      const resizeObserver = new ResizeObserver(() => {
-        const width = scroller.clientWidth;
-        if (width === lastWidth) return;
-        lastWidth = width;
-
-        window.clearTimeout(resizeTimer);
-        resizeTimer = window.setTimeout(() => {
-          measure();
-          placeAtIndex(centeredIndexRef.current);
-        }, 150);
-      });
-      resizeObserver.observe(scroller);
-
-      // `will-change` is a standing cost, so — exactly as the hero already
-      // does — the hint is scoped to the window where it buys something: the
-      // faces are promoted while the section is anywhere in the viewport and
-      // released once it has scrolled away, instead of holding three
-      // card-sized compositor layers for the whole session.
-      const syncWillChange = (self: ScrollTrigger) => {
-        for (const face of faceRefs.current) {
-          if (face)
-            face.style.willChange = self.isActive ? "transform" : "auto";
-        }
-      };
-
-      const promote = ScrollTrigger.create({
-        trigger: sectionRef.current,
-        start: "top bottom",
-        end: "bottom top",
-        onToggle: syncWillChange,
-      });
-
-      // A toggle only reports a change — created mid-viewport (a reload down
-      // the page) the trigger is simply born active, so the opening state is
-      // applied by hand.
-      syncWillChange(promote);
-
-      scroller.addEventListener("scroll", onScroll, { passive: true });
+      triggerRef.current = trigger;
 
       return () => {
-        resizeObserver.disconnect();
-        window.clearTimeout(resizeTimer);
-        promote.kill();
-        for (const face of faceRefs.current) {
-          if (face) face.style.willChange = "";
-        }
-        scroller.removeEventListener("scroll", onScroll);
-        if (frame) cancelAnimationFrame(frame);
-        window.clearTimeout(settleTimer);
+        trigger.kill();
+        triggerRef.current = null;
       };
     },
-    { scope: sectionRef, dependencies: [prefersReducedMotion, compact] },
+    { scope: trackRef, dependencies: [prefersReducedMotion, select] },
   );
 
   /**
-   * Arrow keys, Home and End move the carousel while it has focus.
-   *
-   * The scroller is focusable, so a browser would already give it arrow-key
-   * scrolling by the pixel; this upgrades that to card-at-a-time movement so
-   * the keyboard lands on the same snap positions every other input does.
+   * Pinned, the scroll position is the only source of truth, so choosing a
+   * project scrolls to the middle of its stretch of the track. Unpinned
+   * (reduced motion) it simply selects.
    */
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const moves: Record<string, () => void> = {
-      ArrowLeft: () => stepBy(-1),
-      ArrowRight: () => stepBy(1),
-      Home: () => scrollToIndex(0),
-      End: () => scrollToIndex(PROJECTS.length - 1),
-    };
-
-    const move = moves[event.key];
-    if (!move) return;
-
-    event.preventDefault();
-    move();
+  const choose = (index: number) => {
+    const trigger = triggerRef.current;
+    if (!trigger) {
+      select(index);
+      return;
+    }
+    const target =
+      trigger.start +
+      ((index + 0.5) / WORK.length) * (trigger.end - trigger.start);
+    if (Math.abs(window.scrollY - target) < 1) return;
+    window.scrollTo({ top: target, behavior: "smooth" });
   };
 
-  const atStart = centeredIndex === 0;
-  const atEnd = centeredIndex === PROJECTS.length - 1;
+  const current = WORK[active];
+  const href = "href" in current ? current.href : undefined;
 
   return (
-    // `motion-reduce:bg-black` is the reduce-motion ground, stated in the
-    // markup so it is already correct on the server's HTML — see the effect
-    // above. It is inert otherwise: the animated branch writes an inline
-    // `background-color`, which outranks a class.
-    <div
-      ref={sectionRef}
-      // `relative z-0` puts the whole section — its ground included — on a
-      // layer below the hero above it, which is what keeps the hero's place
-      // caption on top of this black wherever the two overlap. See the note in
-      // `page.tsx`; nothing in here has any business painting over the hero, so
-      // scoping the carousel's own stacking (the cards' BASE_Z_INDEX, the
-      // arrows' `z-10`) inside this context costs nothing — those values only
-      // ever order these elements against each other.
-      className="relative z-0 min-h-dvh py-64 motion-reduce:bg-black rounded-b-[4rem]"
-    >
-      {/* Everything the section draws, wrapped as one element so it can
-          fade with the ground behind it — see `contentRef`.
-
-          `opacity-0` is the resting state in the markup rather than
-          something the effect writes on mount, so the server's HTML is
-          already correct and the contents cannot flash in before the
-          ground has darkened. `motion-reduce:opacity-100` is the same
-          arrangement as the ground's own `motion-reduce:bg-black`: under
-          the preference there is no fade to be the start of, so the
-          contents are simply present, with no JavaScript involved in
-          making them so. */}
-      <div ref={contentRef} className="opacity-0 motion-reduce:opacity-100">
-        <header>
-          <p className="text-white text-center text-2xl mb-4 opacity-60">
-            Internships + Projects
-          </p>
-          <h2 className="text-white text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl tracking-tight font-aeonik-regular text-center">
-            Products I&apos;ve <br /> helped ship
-          </h2>
-        </header>
-
-        <div
-          className="relative mt-24"
-          role="group"
-          aria-roledescription="carousel"
-          aria-label="Products I've helped ship"
+    <div ref={trackRef} className="h-[300dvh] motion-reduce:h-auto">
+      <div className="sticky top-0 h-dvh motion-reduce:static motion-reduce:h-auto">
+        <section
+          aria-label="Internships and projects"
+          className="relative flex h-full min-h-dvh flex-col border-y border-neutral-200 font-aeonik-regular"
         >
-          {/* Nothing here but the edge fade — see `EDGE_FADE`. */}
-          <div
-            style={{
-              WebkitMaskImage: EDGE_FADE,
-              maskImage: EDGE_FADE,
-            }}
-          >
-            <div
-              ref={scrollerRef}
-              tabIndex={0}
-              onKeyDown={handleKeyDown}
-              aria-label="Projects, use the arrow keys to browse"
-              // `overflow-y-hidden` clips to the scroller's own content box, and the
-              // flanking cards are both scaled up and pulled toward the camera — so
-              // the vertical padding here is not decoration, it is the headroom that
-              // keeps their top and bottom edges from being sliced off.
-              //
-              // The x-axis stays scrollable for `scrollTo`/`scrollLeft`.
-              // Horizontal touch panning is what gets withheld: mobile
-              // browsers are not consistent about programmatic scroll on an
-              // `overflow-x-hidden` axis, but `touch-action` can keep vertical
-              // page scrolling and pinch zoom while rejecting carousel swipes.
-              className="scrollbar-hidden flex snap-x snap-mandatory [touch-action:pan-y_pinch-zoom] overflow-x-auto overflow-y-hidden overscroll-x-none py-28 outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-            >
-              {/*
-                No `perspective` or `preserve-3d` anywhere above the cards. Either
-                one here would gather every card into a single 3D rendering
-                context, where painting order is decided by depth sorting the
-                flattened faces cannot take part in — see `BASE_Z_INDEX`. Each
-                card brings its own perspective instead.
-              */}
-              <div
-                ref={trackRef}
-                className="relative flex shrink-0 items-center gap-6 px-[calc(50%-clamp(130px,15vw,360px))]"
-              >
-                {PROJECTS.map((project, index) => (
-                  <div
-                    key={project.title}
-                    ref={(el) => {
-                      cardRefs.current[index] = el;
-                    }}
-                    role="group"
-                    aria-roledescription="slide"
-                    aria-label={`${index + 1} of ${PROJECTS.length}: ${project.title}`}
-                    // The snap box: laid out, measured, and snapped to, but never
-                    // transformed — see `updateArc`. It carries the projection
-                    // for the one face inside it, and `z-index` orders it against
-                    // the other cards; the arc writes both every frame, along
-                    // with the `perspectiveOrigin` that aims this card's
-                    // vanishing point back at the scroller's centre.
-                    className="relative w-[clamp(260px,30vw,720px)] aspect-video shrink-0 snap-center"
-                    style={{ perspective: PERSPECTIVE }}
+          <div className="grid flex-1 grid-cols-1 lg:grid-cols-[7fr_5fr]">
+            <h2 className="sr-only">Products I&apos;ve helped ship</h2>
+
+            {/* Index */}
+            <ol className="order-2 flex flex-col lg:order-1 lg:border-r lg:border-neutral-200">
+              {WORK.map((work, index) => {
+                const isActive = index === active;
+                return (
+                  <li
+                    key={work.title}
+                    className="flex-1 border-b border-neutral-200 last:border-b-0"
                   >
-                    <div
-                      ref={(el) => {
-                        faceRefs.current[index] = el;
+                    <button
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => choose(index)}
+                      onFocus={() => choose(index)}
+                      onMouseEnter={() => {
+                        // Pinned, hovering must not fight the scroll position.
+                        if (!triggerRef.current) select(index);
                       }}
-                      // No standing `will-change` — the hint is applied by
-                      // `syncWillChange` only while the section is on screen.
-                      className="relative h-full w-full overflow-hidden rounded-4xl bg-neutral-800 shadow-2xl shadow-black/60"
+                      className="group flex h-full w-full cursor-pointer flex-col justify-center gap-3 px-4 py-6 text-left outline-none focus-visible:bg-neutral-50 sm:px-8 lg:py-10"
                     >
-                      {project.video ? (
-                        <>
-                          {/* `preload="none"`, deliberately, and it is worth
-                              a line: the one video here is a 70 MB showcase
-                              reel, and the browser default (`metadata`, and
-                              in practice more than that in Safari) has every
-                              visitor pay for some of it before the card is
-                              anywhere near the screen. Nothing is lost —
-                              the autoplay effect above calls `play()` when
-                              the card centres, which starts the fetch then,
-                              for the visitor who has actually arrived at it.
-                              Bytes nobody watches are the single largest
-                              thing this page spends, and they land squarely
-                              on the Core Web Vitals a search engine reads. */}
-                          <video
-                            ref={(el) => {
-                              imgRefs.current[index] = el;
-                              videoRefs.current[index] = el;
-                            }}
-                            src={project.video}
-                            className="absolute inset-0 w-full h-full object-cover"
-                            muted
-                            loop
-                            playsInline
-                            onPlay={() =>
-                              setVideoUiState((prev) => ({
-                                ...prev,
-                                [index]: {
-                                  muted: prev[index]?.muted ?? true,
-                                  playing: true,
-                                },
-                              }))
-                            }
-                            onPause={() =>
-                              setVideoUiState((prev) => ({
-                                ...prev,
-                                [index]: {
-                                  muted: prev[index]?.muted ?? true,
-                                  playing: false,
-                                },
-                              }))
-                            }
-                            onVolumeChange={(event) => {
-                              const muted = event.currentTarget.muted;
-                              setVideoUiState((prev) => ({
-                                ...prev,
-                                [index]: {
-                                  playing: prev[index]?.playing ?? true,
-                                  muted,
-                                },
-                              }));
-                            }}
-                            // The radial dissolve re-rasterises the video on every
-                            // distinct `--depth`; the compact build swaps it for
-                            // the opacity ramp on the face and carries no mask.
-                            style={
-                              compact
-                                ? undefined
-                                : {
-                                    WebkitMaskImage: IMAGE_MASK,
-                                    maskImage: IMAGE_MASK,
-                                  }
-                            }
-                          />
-                          {/*
-                            Controls only shown for the centred card — the
-                            flanks are rotated, dimmed and often only partly
-                            visible, so buttons on them would be both hard to
-                            read and easy to hit by accident while stepping
-                            through the carousel.
-                          */}
-                          {index === centeredIndex && (
-                            <div className="absolute bottom-4 left-4 z-20 flex gap-2">
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  const video = videoRefs.current[index];
-                                  if (!video) return;
-                                  if (video.paused) video.play();
-                                  else video.pause();
-                                }}
-                                aria-label={
-                                  (videoUiState[index]?.playing ?? true)
-                                    ? "Pause video"
-                                    : "Play video"
-                                }
-                                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
-                              >
-                                {(videoUiState[index]?.playing ?? true) ? (
-                                  <BsPauseFill size={18} />
-                                ) : (
-                                  <BsPlayFill size={18} />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  const video = videoRefs.current[index];
-                                  if (!video) return;
-                                  video.muted = !video.muted;
-                                }}
-                                aria-label={
-                                  (videoUiState[index]?.muted ?? true)
-                                    ? "Unmute video"
-                                    : "Mute video"
-                                }
-                                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
-                              >
-                                {(videoUiState[index]?.muted ?? true) ? (
-                                  <BsVolumeMuteFill size={18} />
-                                ) : (
-                                  <BsVolumeUpFill size={18} />
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setFullscreenIndex(index);
-                                }}
-                                aria-label="Expand video preview"
-                                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
-                              >
-                                <BsArrowsFullscreen size={16} />
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <Image
-                          ref={(el) => {
-                            imgRefs.current[index] = el;
-                          }}
-                          src={project.image}
-                          alt={project.title}
-                          fill
-                          sizes="(max-width: 768px) 80vw, 720px"
-                          loading="lazy"
-                          decoding="async"
-                          className="object-cover"
-                          draggable={false}
-                          // The radial dissolve re-rasterises the image on every
-                          // distinct `--depth`; the compact build swaps it for
-                          // the opacity ramp on the face and carries no mask.
-                          style={
-                            compact
-                              ? undefined
-                              : {
-                                  WebkitMaskImage: IMAGE_MASK,
-                                  maskImage: IMAGE_MASK,
-                                }
-                          }
-                        />
-                      )}
-                      {/*
-                      The dust. Same image again, but showing only through the
-                      particle stencil — so every speck is a sample of the
-                      artwork underneath it and carries that pixel's colour,
-                      rather than being a grey fleck laid on top. `background`
-                      rather than a second <img> because nothing here needs a
-                      second decode, an alt text, or a place in the a11y tree.
-                    */}
-                      {hydrated && !compact && (
-                        <div
-                          ref={(el) => {
-                            dustRefs.current[index] = el;
-                          }}
-                          aria-hidden
-                          className="pointer-events-none absolute inset-0 opacity-0"
-                          style={{
-                            backgroundImage: `url("${project.image}")`,
-                            backgroundSize: "cover",
-                            backgroundPosition: "center",
-                            // Left unblurred on purpose — the image beneath is
-                            // going soft as it recedes, and specks that stay sharp
-                            // against it are what separate "coming apart" from
-                            // "going out of focus". No saturation lift any more:
-                            // the receding card is being desaturated deliberately,
-                            // and dust that stayed vivid would sit outside that
-                            // lighting rather than inside it.
-                            filter: "none",
-                            WebkitMaskImage: DUST_LAYER_MASK,
-                            maskImage: DUST_LAYER_MASK,
-                            WebkitMaskSize: `${DUST_TILE}px ${DUST_TILE}px, 100% 100%`,
-                            maskSize: `${DUST_TILE}px ${DUST_TILE}px, 100% 100%`,
-                            WebkitMaskRepeat: "repeat, no-repeat",
-                            maskRepeat: "repeat, no-repeat",
-                            // Safari still wants the old keyword for the same op.
-                            WebkitMaskComposite: "source-in",
-                            maskComposite: "intersect",
-                          }}
-                        />
-                      )}
-                      {hydrated && !compact && (
-                        <div
-                          ref={(el) => {
-                            grainRefs.current[index] = el;
-                          }}
-                          aria-hidden
-                          className="pointer-events-none absolute inset-0 opacity-0 mix-blend-hard-light"
-                          style={{
-                            backgroundImage: GRAIN_BACKGROUND,
-                            backgroundSize: "180px 180px",
-                            WebkitMaskImage: GRAIN_MASK,
-                            maskImage: GRAIN_MASK,
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                ))}
+                      <span className="flex items-baseline gap-4 sm:gap-6">
+                        <span
+                          className={`w-6 shrink-0 text-sm tabular-nums transition-colors duration-300 sm:w-8 sm:text-base ${
+                            isActive ? "text-neutral-900" : "text-neutral-400"
+                          }`}
+                        >
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span
+                          className={`${DISPLAY} tracking-tighter transition-[color,transform] duration-500 ease-out motion-reduce:transition-none ${
+                            isActive
+                              ? "translate-x-2 text-neutral-900"
+                              : "text-neutral-300 group-hover:text-neutral-500"
+                          }`}
+                        >
+                          {work.title}
+                        </span>
+                        <span
+                          className={`ml-auto hidden shrink-0 text-sm transition-colors duration-300 sm:block sm:text-base ${
+                            isActive ? "text-neutral-900" : "text-neutral-400"
+                          }`}
+                        >
+                          {work.kind}
+                        </span>
+                      </span>
+
+                      <span
+                        className={`grid pl-10 transition-[grid-template-rows,opacity] duration-500 ease-out motion-reduce:transition-none sm:pl-14 ${
+                          isActive
+                            ? "grid-rows-[1fr] opacity-100"
+                            : "grid-rows-[0fr] opacity-0"
+                        }`}
+                      >
+                        <span className="overflow-hidden">
+                          <span className="block max-w-[32ch] pl-2 text-lg text-neutral-500 sm:text-xl xl:text-2xl">
+                            {work.summary}
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+
+            {/* Stage */}
+            <div className="order-1 flex flex-col border-b border-neutral-200 lg:order-2 lg:border-b-0">
+              <div className="flex flex-1 items-center px-4 py-6 sm:px-8 lg:px-10 lg:py-10">
+                <div className="relative aspect-video w-full bg-neutral-100 outline outline-1 outline-neutral-300">
+                  <Tick className="-left-2 -top-2" />
+                  <Tick className="-right-2 -top-2" />
+                  <Tick className="-bottom-2 -left-2" />
+                  <Tick className="-bottom-2 -right-2" />
+
+                  {WORK.map((work, index) => {
+                    const isActive = index === active;
+                    const fade = `absolute inset-0 size-full object-cover transition-opacity duration-500 motion-reduce:transition-none ${
+                      isActive ? "opacity-100" : "opacity-0"
+                    }`;
+                    return "video" in work ? (
+                      <video
+                        key={work.title}
+                        ref={(el) => {
+                          videoRefs.current[index] = el;
+                        }}
+                        src={work.video}
+                        poster={work.image}
+                        className={fade}
+                        muted={unmutedIndex !== index}
+                        loop
+                        playsInline
+                        preload="none"
+                        aria-hidden={!isActive}
+                      />
+                    ) : (
+                      <Image
+                        key={work.title}
+                        src={work.image}
+                        alt={isActive ? `${work.title} screenshot` : ""}
+                        fill
+                        sizes="(min-width: 1024px) 40vw, 100vw"
+                        priority={index === 0}
+                        className={fade}
+                      />
+                    );
+                  })}
+
+                  {"video" in current ? (
+                    // The whole frame is the control: dimmed and marked while
+                    // muted, clear once it has sound. Clicking again mutes.
+                    <button
+                      type="button"
+                      aria-label={
+                        unmutedIndex === active ? "Mute video" : "Unmute video"
+                      }
+                      onClick={() =>
+                        setUnmutedIndex((unmuted) =>
+                          unmuted === active ? null : active,
+                        )
+                      }
+                      className={`absolute inset-0 flex cursor-pointer items-center justify-center outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white motion-reduce:transition-none ${
+                        unmutedIndex === active
+                          ? "bg-transparent"
+                          : "bg-black/40"
+                      }`}
+                    >
+                      <BsVolumeMuteFill
+                        aria-hidden
+                        className={`size-10 text-white transition-opacity duration-300 motion-reduce:transition-none ${
+                          unmutedIndex === active ? "opacity-0" : "opacity-100"
+                        }`}
+                      />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 border-t border-neutral-200 px-4 py-5 sm:px-8 lg:px-10">
+                <span className="text-sm text-neutral-500 sm:text-base">
+                  {current.when}
+                </span>
+                {href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center gap-1.5 text-base text-neutral-900 transition-[gap] duration-300 hover:gap-3"
+                  >
+                    <span className="underline decoration-neutral-300 underline-offset-4 group-hover:decoration-neutral-900">
+                      View more
+                    </span>
+                    <span aria-hidden>→</span>
+                  </a>
+                ) : null}
               </div>
             </div>
           </div>
-
-          {/*
-            The arrows are the affordance the carousel was missing entirely.
-            Nothing about the old version said it could be scrolled — it
-            answered only to a wheel gesture the visitor had to guess at, and to
-            nothing at all on a mouse without horizontal scroll. Real <button>s
-            also put it in the tab order for free.
-
-            Hidden from assistive tech: the scroller itself is focusable and
-            documents its own arrow-key handling, so announcing these too would
-            just be a second way to say the same thing.
-          */}
-          <button
-            type="button"
-            onClick={() => stepBy(-1)}
-            disabled={atStart}
-            aria-hidden
-            tabIndex={-1}
-            className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:left-4 md:p-4"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={() => stepBy(1)}
-            disabled={atEnd}
-            aria-hidden
-            tabIndex={-1}
-            className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-3 text-white backdrop-blur transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-0 md:right-4 md:p-4"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-          </button>
-        </div>
-
-        {/*
-          One dot per project: the count and the position, which the arc alone
-          cannot convey once a card is rotated far enough to be unreadable. Also
-          the only direct way to reach a specific project rather than stepping
-          past everything in between.
-        */}
-        <div className="mt-8 flex justify-center gap-3">
-          {PROJECTS.map((project, index) => (
-            <button
-              key={project.title}
-              type="button"
-              onClick={() => scrollToIndex(index)}
-              aria-label={`Show ${project.title}`}
-              aria-current={index === centeredIndex}
-              className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
-                index === centeredIndex
-                  ? "w-8 bg-white"
-                  : "w-2.5 bg-white/30 hover:bg-white/60"
-              }`}
-            />
-          ))}
-        </div>
-
-        {/*
-          The copy swaps as a side effect of scrolling, with no focus change to
-          carry the news — but the visible container is deliberately *not* a
-          live region: it updates on every card the carousel passes, and a
-          screen reader would re-announce a full paragraph per pass. The
-          visually-hidden region below speaks instead, and only once the
-          scroller has settled — see `settledIndex`.
-        */}
-        <div aria-live="polite" className="sr-only">
-          {PROJECTS[settledIndex].title}
-        </div>
-        <div className="text-white flex flex-col max-w-4xl m-auto gap-6 p-12">
-          <WorkDescriptions type={PROJECTS[centeredIndex].title} />
-        </div>
+        </section>
       </div>
-
-      {/*
-        The expanded preview. A sibling of `contentRef` rather than inside it —
-        the section can be mid-fade or off-screen entirely while this is open,
-        and the preview has no business inheriting that opacity. Not the real
-        Fullscreen API: this is a large in-page overlay so the browser chrome,
-        and the escape hatch back to the page, both stay on screen.
-      */}
-      {fullscreenIndex !== null && PROJECTS[fullscreenIndex].video && (
-        <div
-          ref={previewBackdropRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${PROJECTS[fullscreenIndex].title} preview`}
-          onClick={closeFullscreen}
-          className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 p-6 sm:p-12"
-        >
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              closeFullscreen();
-            }}
-            aria-label="Close preview"
-            className="absolute top-4 left-4 z-10 rounded-full border border-white/20 bg-black/50 p-3 text-white backdrop-blur transition hover:bg-black/75 sm:top-6 sm:left-6"
-          >
-            <BsX size={28} />
-          </button>
-          {/*
-            `inline-block` rather than a size of its own: the box has to match
-            whatever the video renders at — its real intrinsic ratio, capped
-            to the viewport, decided below — so the control bar sitting on
-            top of it (absolutely positioned against *this* element) lines up
-            with the video's actual edges instead of the dialog's padding.
-          */}
-          <div
-            className="relative inline-block"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <video
-              key={fullscreenIndex}
-              ref={fullscreenVideoRef}
-              src={PROJECTS[fullscreenIndex].video}
-              autoPlay
-              playsInline
-              // No native `controls`: the bar below replaces them, sharing
-              // the same play/pause and mute affordances as the carousel
-              // card's own overlay rather than mixing browser chrome with
-              // this site's controls.
-              onPlay={() => setPreviewPlaying(true)}
-              onPause={() => setPreviewPlaying(false)}
-              onVolumeChange={(event) =>
-                setPreviewMuted(event.currentTarget.muted)
-              }
-              onTimeUpdate={(event) => {
-                const current = event.currentTarget.currentTime;
-                setPreviewTime((prev) => ({ ...prev, current }));
-              }}
-              // Opens on the exact frame the carousel card was left at — the
-              // card is paused the instant this dialog mounts (see the effect
-              // above), so its `currentTime` is stable to read by the time
-              // metadata for this element is ready to accept one.
-              //
-              // Also where the panel is actually revealed. It has no
-              // hard-coded aspect ratio any more — a fixed one previously
-              // stood in for the real dimensions before the browser knew
-              // them, but that guess stops matching the moment the source
-              // video's own ratio changes, which is exactly what surfaced
-              // this: it started forcing a 16:9 box onto a video that no
-              // longer is one, letterboxing it inside the rounded corners.
-              // `max-h`/`max-w` alone let the browser size the element to its
-              // *real* intrinsic ratio, capped to the viewport, however that
-              // ratio turns out to be — but that sizing isn't known until
-              // this event fires, so the panel stays `opacity-0` (className
-              // below) until here, rather than showing a wrongly-sized box
-              // for the one frame before metadata arrives.
-              onLoadedMetadata={(event) => {
-                const video = event.currentTarget;
-                const inlineVideo = videoRefs.current[fullscreenIndex];
-                if (inlineVideo) {
-                  video.currentTime = inlineVideo.currentTime;
-                }
-                setPreviewTime({
-                  current: video.currentTime,
-                  duration: video.duration,
-                });
-
-                if (prefersReducedMotion) {
-                  gsap.set(video, { opacity: 1, scale: 1 });
-                } else {
-                  gsap.fromTo(
-                    video,
-                    { opacity: 0, scale: 0.92 },
-                    {
-                      opacity: 1,
-                      scale: 1,
-                      duration: 0.35,
-                      ease: "power2.out",
-                    },
-                  );
-                }
-              }}
-              className="block max-h-[85vh] max-w-[90vw] rounded-2xl opacity-0 shadow-2xl shadow-black/60"
-              onClick={() => {
-                const video = fullscreenVideoRef.current;
-                if (!video) return;
-                if (video.paused) video.play();
-                else video.pause();
-              }}
-            />
-
-            {/*
-              The custom timeline: a seek bar plus the time remaining, in
-              place of whatever the browser's own scrubber would have shown.
-              Pinned to the video's bottom edge via the wrapper above rather
-              than the dialog's, so it tracks the video's actual rendered
-              size at any viewport.
-
-              Withheld until `duration` is known — `previewTime` still carries
-              whatever the last preview left behind for the one tick before
-              this element's own `onLoadedMetadata` overwrites it, and a
-              duration/seek-bar briefly showing a stale video's numbers is a
-              worse glitch than the bar simply not being there yet.
-            */}
-            {previewTime.duration > 0 && (
-              <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 rounded-b-2xl bg-gradient-to-t from-black/80 to-transparent px-4 pt-10 pb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const video = fullscreenVideoRef.current;
-                    if (!video) return;
-                    if (video.paused) video.play();
-                    else video.pause();
-                  }}
-                  aria-label={previewPlaying ? "Pause video" : "Play video"}
-                  className="shrink-0 rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
-                >
-                  {previewPlaying ? (
-                    <BsPauseFill size={18} />
-                  ) : (
-                    <BsPlayFill size={18} />
-                  )}
-                </button>
-
-                <input
-                  type="range"
-                  min={0}
-                  max={previewTime.duration || 0}
-                  step={0.01}
-                  value={previewTime.current}
-                  onChange={(event) => {
-                    const video = fullscreenVideoRef.current;
-                    const value = Number(event.currentTarget.value);
-                    if (video) video.currentTime = value;
-                    setPreviewTime((prev) => ({ ...prev, current: value }));
-                  }}
-                  aria-label="Seek"
-                  className="h-1.5 w-full min-w-0 cursor-pointer accent-white"
-                />
-
-                <span className="w-11 shrink-0 text-right text-xs tabular-nums text-white/80">
-                  -{formatTime(previewTime.duration - previewTime.current)}
-                </span>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const video = fullscreenVideoRef.current;
-                    if (!video) return;
-                    video.muted = !video.muted;
-                  }}
-                  aria-label={previewMuted ? "Unmute video" : "Mute video"}
-                  className="shrink-0 rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur transition hover:bg-black/75"
-                >
-                  {previewMuted ? (
-                    <BsVolumeMuteFill size={18} />
-                  ) : (
-                    <BsVolumeUpFill size={18} />
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

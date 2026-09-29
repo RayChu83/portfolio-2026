@@ -3,10 +3,10 @@
 import dynamic from "next/dynamic";
 
 /**
- * `Work` starts a full viewport below the fold, and its effect stack — the
- * carousel arc, the masks, the GSAP wiring — has no business in the bundle
- * that has to parse before the hero's first frame. `dynamic` keeps it in a
- * chunk of its own for exactly that reason.
+ * `Work` starts a full viewport below the fold, and its selection state and
+ * video handling have no business in the bundle that has to parse before the
+ * hero's first frame. `dynamic` keeps it in a chunk of its own for exactly
+ * that reason.
  *
  * What it deliberately does *not* do any more is pass `ssr: false`. That flag
  * kept the section out of the server render too, and the section is where
