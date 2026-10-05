@@ -3,7 +3,11 @@
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import Image from "next/image";
 import { useRef } from "react";
+import designerIcon from "../../../public/designer.png";
+import profileIcon from "../../../public/icon-192.png";
+import softwareEngineerIcon from "../../../public/softwareEngineer.png";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
@@ -11,7 +15,15 @@ gsap.registerPlugin(useGSAP, ScrollTrigger);
 const MIN_SCALE = 0.6;
 
 /**
- * The page's greeting, which shrinks as the visitor scrolls away from it.
+ * The page's greeting, which cascades in line by line on load — each line
+ * rising into focus with a short stagger, the icons popping in as a separate
+ * accent beat, the location line closing things out with its underline — and
+ * shrinks as the visitor scrolls away from it.
+ *
+ * The entrance and the shrink live on the same element and the same GSAP
+ * scope, but are otherwise unrelated: the entrance plays once, immediately,
+ * outside any ScrollTrigger, while the shrink is scrubbed to scroll position
+ * and works purely through `transform`.
  *
  * The shrink is a transform, not a font-size change: it leaves the header's
  * layout box exactly where the document flow put it, so nothing below shifts
@@ -34,6 +46,63 @@ export default function Header() {
       // Reduced motion keeps the greeting at full size — the shrink is
       // decoration, not content.
       media.add("(prefers-reduced-motion: no-preference)", () => {
+        // The load-in: every word and icon cascades in as its own beat, in
+        // document order, instead of three big line-groups revealing
+        // together. Text words resolve via blur + rise + fade — never a
+        // clip-path or mask sweep, which have a hard binary edge (clipped vs.
+        // not) with no feathering, so a sweep reads as a literal line cutting
+        // through the glyphs as it travels. Blur/opacity/y all vary
+        // uniformly across the whole word instead, so there's no boundary to
+        // see. Icons get a separate scale/rotate pop, and — sharing no
+        // clipped ancestor with the text — their `back.out` overshoot is
+        // never cut off at a box edge either.
+        const entrance = gsap.timeline({ defaults: { ease: "power3.out" } });
+        const pieces = Array.from(
+          ref.current?.querySelectorAll<HTMLElement>(
+            ".hero-word, .hero-icon",
+          ) ?? [],
+        );
+        const WORD_STAGGER = 0.07;
+
+        pieces.forEach((el, i) => {
+          if (el.classList.contains("hero-icon")) {
+            entrance.fromTo(
+              el,
+              { scale: 0, rotate: -18, opacity: 0 },
+              {
+                scale: 1,
+                rotate: 0,
+                opacity: 1,
+                duration: 0.55,
+                ease: "back.out(2.4)",
+              },
+              i * WORD_STAGGER,
+            );
+          } else {
+            entrance.fromTo(
+              el,
+              { y: 26, opacity: 0, filter: "blur(8px)" },
+              { y: 0, opacity: 1, filter: "blur(0px)", duration: 0.65 },
+              i * WORD_STAGGER,
+            );
+          }
+        });
+
+        entrance
+          .set(".hero-word", { filter: "none" })
+          .fromTo(
+            ".hero-sub",
+            { y: 16, opacity: 0 },
+            { y: 0, opacity: 1, duration: 0.5 },
+            "-=0.35",
+          )
+          .fromTo(
+            ".hero-underline",
+            { scaleX: 0, transformOrigin: "left" },
+            { scaleX: 1, duration: 0.45, ease: "power2.inOut" },
+            "-=0.2",
+          );
+
         // Scrubbed over exactly the scroll it takes for the header to travel
         // up and out of the viewport, so the ramp tracks the type's own size
         // at every breakpoint instead of a number tuned for one of them.
@@ -61,6 +130,7 @@ export default function Header() {
         return () => {
           tween.scrollTrigger?.kill();
           tween.kill();
+          entrance.kill();
         };
       });
 
@@ -70,39 +140,48 @@ export default function Header() {
   );
 
   return (
-    <header ref={ref} className="pt-20 pb-4">
-      <div ref={scaledRef} className="origin-top">
-        <p className="text-center text-xl mb-4 text-neutral-700">
-          Software Engineer • NYC
-        </p>
-        <h1 className="text-center font-aeonik-regular tracking-tighter mb-8">
-          <span className="text-neutral-600 text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
-            Hey there,
-          </span>
-          <br />{" "}
-          <span className="text-black! text-6xl lg:text-7xl xl:text-8xl 2xl:text-9xl">
-            I&apos;m Ray
+    <header
+      ref={ref}
+      className="h-dvh py-24 px-4 flex flex-col items-center justify-center"
+    >
+      <div ref={scaledRef} className="origin-center">
+        <h1 className="text-center font-aeonik-regular tracking-tighter flex flex-col gap-4 mb-12">
+          <span className="text-neutral-900 text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
+            <span className="hero-word inline-block">Hey,</span>{" "}
+            <span className="hero-word inline-block">I&apos;m</span>{" "}
+            <Image
+              src={profileIcon}
+              alt=""
+              aria-hidden
+              className="hero-icon inline-block size-[1em] rounded-full object-cover align-[-0.2em] mx-[0.05em]"
+            />{" "}
+            <span className="hero-word inline-block">Ray.</span>
+          </span>{" "}
+          <span className="text-neutral-900 text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
+            <span className="hero-word inline-block">Software</span>{" "}
+            <span className="hero-word inline-block">Engineer</span>{" "}
+            <Image
+              src={softwareEngineerIcon}
+              alt=""
+              aria-hidden
+              className="hero-icon inline-block size-[1em] rounded-2xl object-contain align-[-0.2em] mx-[0.05em]"
+            />
+          </span>{" "}
+          <span className="text-neutral-900 text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
+            <span className="hero-word inline-block">who</span>{" "}
+            <span className="hero-word inline-block">Designs</span>{" "}
+            <Image
+              src={designerIcon}
+              alt=""
+              aria-hidden
+              className="hero-icon inline-block size-[1em] rounded-2xl object-contain align-[-0.2em] mx-[0.05em]"
+            />
           </span>
         </h1>
-        {/* `motion-reduce:hidden`: the tilt this line invites is disabled
-            under the preference (useTilt returns before attaching anything),
-            and copy promising an effect that will not run is worse than no
-            copy. A media query, like the swap inside, so the server and
-            client agree. */}
-        {/* A `<p>`, not a heading. It is sized like one and sits under the
-            name like one, but it heads nothing — it is an instruction, and
-            marking it up as `<h4>` both lied about the document outline and
-            skipped two levels down from the `<h1>` directly above it, which
-            is the one thing a screen reader's heading list is guaranteed to
-            read out as a mistake. */}
-        <p className="text-center text-2xl md:text-3xl font-aeonik-regular tracking-tight motion-reduce:hidden">
-          {/* Swapped by media query rather than by feature detection, so the
-              server and client render the same markup. */}
-          <span className="[@media(hover:none)]:hidden">
-            Try to move your mouse
-          </span>
-          <span className="hidden [@media(hover:none)]:inline">
-            Try to tilt your device
+        <p className="hero-sub text-center text-lg sm:text-xl md:text-2xl text-neutral-900">
+          <span>From</span>{" "}
+          <span className="hero-underline underline underline-offset-4 decoration-1">
+            New York City
           </span>
         </p>
       </div>

@@ -103,13 +103,13 @@ export const usePageTransition = () => useContext(PageTransitionContext);
  * So the outgoing page is captured as a plain `cloneNode(true)` copy the
  * instant the link is clicked, parked in a fixed overlay above everything,
  * and animated there while the real navigation proceeds underneath it. The
- * copy is inert markup: no React, no effects, no ScrollTriggers re-arming,
- * no second `PageLoader` gate. It is a photograph of the page, and a
- * photograph is exactly what the effect needs.
+ * copy is inert markup: no React, no effects, no ScrollTriggers re-arming.
+ * It is a photograph of the page, and a photograph is exactly what the
+ * effect needs.
  *
  * Re-rendering the previous `children` element into a second tree would have
  * been the more React-shaped answer, and it is the wrong one here: every
- * animated component on this site (`HeroHeadshot`, `Work`, `Header`) would
+ * animated component on this site (`Work`, `Header`) would
  * mount a *second* set of scroll triggers measuring a page that is in the
  * middle of being scaled and translated away.
  *

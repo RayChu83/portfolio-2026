@@ -4,7 +4,6 @@ import "./globals.css";
 import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
-import PageLoader from "./_components/PageLoader";
 import PageTransition from "./_components/PageTransition";
 import StructuredData from "./_components/StructuredData";
 
@@ -124,14 +123,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             does not have. It renders no visible box and ships no JavaScript —
             the type is `application/ld+json`, which no browser executes. */}
         <StructuredData />
-        {/* Inside the loader, not outside it: the loader's gate is a fixed
-            sheet painted over the page and has nothing to do with routing,
-            while the transition needs to own the page's own top-level nodes
-            so it can photograph them on the way out. Nesting it the other way
-            would put the gate inside the picture. */}
-        <PageLoader>
-          <PageTransition>{children}</PageTransition>
-        </PageLoader>
+        <PageTransition>{children}</PageTransition>
       </body>
     </html>
   );

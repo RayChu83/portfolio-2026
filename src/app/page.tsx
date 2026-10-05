@@ -1,5 +1,4 @@
 import Header from "./_components/Header";
-import HeroHeadshot from "./_components/HeroHeadshot";
 import DeferredWork from "./_components/DeferredWork";
 import SocialLinks from "./_components/SocialLinks";
 import Footer from "./_components/Footer";
@@ -13,18 +12,6 @@ export default function Home() {
           that wrapper it would blend against the hero alone and go on doing so
           over a black work section. */}
       <SocialLinks />
-      {/* `relative z-10` is the hero's standing claim on the layer above
-          whatever follows it, and it exists for one element: the animated
-          build's "From New York City", which is `absolute` inside the pinned
-          stage and deliberately hangs past the stage's own bottom edge (see
-          PLACE_BOTTOM in HeroAnimated). Everything below reserves flow space
-          for that overhang, so the two should never meet — but "should never
-          meet" is a measurement, and a measurement can be stale for a frame on
-          a phone whose address bar is still moving. This says what the right
-          answer is when they do meet, rather than leaving it to the painting
-          order that falls out of how ScrollTrigger happens to pin (`fixed` on
-          a desktop, `transform` on a touch device) — the caption is hero, the
-          section under it is ground, and the ground never comes up over it. */}
       {/* The page proper, as one opaque layer above the footer.
           `Footer` is `sticky bottom-0`, which means its box is parked against
           the bottom of the screen for the whole of the scroll it takes to
@@ -34,24 +21,14 @@ export default function Home() {
           between sections; take either away and the footer is visible through
           the hero from the first frame.
 
-          `rounded-b-[4rem]` matches `Work`'s own bottom radius exactly, and
-          it has to: `Work`'s rounded corner only cuts into *its own* black
-          background, so whatever sits directly behind that cut — this
-          wrapper's `bg-white`, opaque and square-cornered — is what fills it.
-          Without the same radius here, the corner reveals this wrapper's own
-          white fill instead of the footer parked behind the whole layer, and
-          the intended "footer peeking through" reads as a plain white notch. */}
       {/* A `<main>` rather than a `<div>`. The element already was the page's
           content — everything between the floating nav and the footer — and
           saying so costs nothing: it gives assistive technology the landmark
           to jump to, and it tells a crawler which part of the document is the
           page rather than the chrome around it. There was no `<main>` anywhere
           on the site before this. */}
-      <main className="relative z-10 bg-white rounded-b-[4rem]">
-        <div className="relative z-10 min-h-dvh flex flex-col">
-          <Header />
-          <HeroHeadshot />
-        </div>
+      <main className="relative z-10 bg-white">
+        <Header />
         <DeferredWork />
       </main>
       <Footer />
