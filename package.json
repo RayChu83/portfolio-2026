@@ -13,6 +13,7 @@
     "@base-ui/react": "^1.7.0",
     "@base-ui/utils": "^0.3.2",
     "@gsap/react": "^2.1.2",
+    "@paper-design/shaders-react": "^0.0.81",
     "@types/canvas-confetti": "^1.9.0",
     "@upstash/redis": "^1.38.3",
     "canvas-confetti": "^1.9.4",

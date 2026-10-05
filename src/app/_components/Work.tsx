@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BsVolumeMuteFill } from "react-icons/bs";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
+import BlitzShowcase from "./BlitzShowcase";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
@@ -28,10 +29,10 @@ const WORK = [
   {
     title: "Blitz",
     kind: "Internship",
-    when: "Mar 2026 – Present",
+    when: "Mar 2026 – Sep 2026",
     summary:
       "Software Engineer Intern rebuilding a payouts platform's front end.",
-    image: "/Blitz.webp",
+    image: "/blitz/Blitz.webp",
     href: "https://useblitz.co",
   },
   {
@@ -40,15 +41,15 @@ const WORK = [
     when: "Jul 2024 – Jan 2025",
     summary:
       "Software Engineer Intern building AI summaries for financial filings.",
-    image: "/Unlevered.webp",
-    video: "/Unlevered%20Product%20Showcase.mp4",
+    image: "/unlevered/Unlevered.webp",
+    video: "/unlevered/Unlevered%20Product%20Showcase.mp4",
   },
   {
     title: "Syllabus to Calendar",
     kind: "Project",
     when: "Personal project",
     summary: "Turns college syllabus PDFs into Google Calendar events.",
-    image: "/Syllabus_To_Calendar.webp",
+    image: "/syllabusToCalendar/Syllabus_To_Calendar.webp",
     href: "https://syllabustocalendar.com",
   },
 ] as const;
@@ -197,7 +198,7 @@ export default function Work() {
                           {String(index + 1).padStart(2, "0")}
                         </span>
                         <span
-                          className={`${DISPLAY} tracking-tighter transition-[color,transform] duration-500 ease-out motion-reduce:transition-none ${
+                          className={`${DISPLAY} tracking-tight transition-[color,transform] duration-500 ease-out motion-reduce:transition-none ${
                             isActive
                               ? "translate-x-2 text-neutral-900"
                               : "text-neutral-300 group-hover:text-neutral-500"
@@ -247,6 +248,18 @@ export default function Work() {
                     const fade = `absolute inset-0 size-full object-cover transition-opacity duration-500 motion-reduce:transition-none ${
                       isActive ? "opacity-100" : "opacity-0"
                     }`;
+                    if (work.title === "Blitz") {
+                      return (
+                        <div
+                          key={work.title}
+                          className={fade}
+                          role="img"
+                          aria-label={`${work.title} dashboard`}
+                        >
+                          <BlitzShowcase active={isActive} />
+                        </div>
+                      );
+                    }
                     return "video" in work ? (
                       <video
                         key={work.title}
