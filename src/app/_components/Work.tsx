@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BsVolumeMuteFill } from "react-icons/bs";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 import BlitzShowcase from "./BlitzShowcase";
+import { MdArrowOutward } from "react-icons/md";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
@@ -330,9 +331,9 @@ export default function Work() {
                     className="group flex items-center gap-1.5 text-base text-neutral-900 transition-[gap] duration-300 hover:gap-3"
                   >
                     <span className="underline decoration-neutral-300 underline-offset-4 group-hover:decoration-neutral-900">
-                      View more
+                      Visit website
                     </span>
-                    <span aria-hidden>→</span>
+                    <MdArrowOutward />
                   </a>
                 ) : null}
               </div>
