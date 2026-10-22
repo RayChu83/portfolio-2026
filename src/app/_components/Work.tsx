@@ -3,7 +3,6 @@
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BsVolumeMuteFill } from "react-icons/bs";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
@@ -45,6 +44,7 @@ const WORK = [
       "Software Engineer Intern building AI summaries for financial filings.",
     image: "/unlevered/Unlevered.webp",
     video: "/unlevered/Unlevered%20Product%20Showcase.mp4",
+    hasAudio: true,
   },
   {
     title: "Syllabus to Calendar",
@@ -251,7 +251,7 @@ export default function Work() {
                         </div>
                       );
                     }
-                    return "video" in work ? (
+                    return (
                       <video
                         key={work.title}
                         ref={(el) => {
@@ -266,20 +266,10 @@ export default function Work() {
                         preload="none"
                         aria-hidden={!isActive}
                       />
-                    ) : (
-                      <Image
-                        key={work.title}
-                        src={work.image}
-                        alt={isActive ? `${work.title} screenshot` : ""}
-                        fill
-                        sizes="(min-width: 1024px) 40vw, 100vw"
-                        priority={index === 0}
-                        className={fade}
-                      />
                     );
                   })}
 
-                  {"video" in current && current.hasAudio !== false ? (
+                  {"video" in current && current.hasAudio ? (
                     // The whole frame is the control: dimmed and marked while
                     // muted, clear once it has sound. Clicking again mutes.
                     <button
