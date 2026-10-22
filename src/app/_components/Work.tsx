@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BsVolumeMuteFill } from "react-icons/bs";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
 import BlitzShowcase from "./BlitzShowcase";
+import Tick from "./Tick";
 import { MdArrowOutward } from "react-icons/md";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
@@ -51,25 +52,14 @@ const WORK = [
     when: "Personal project",
     summary: "Turns college syllabus PDFs into Google Calendar events.",
     image: "/syllabusToCalendar/Syllabus_To_Calendar.webp",
+    video: "/syllabusToCalendar/syllabus_to_calendar.mp4",
+    hasAudio: false,
     href: "https://syllabustocalendar.com",
   },
 ] as const;
 
 /** Type scale shared with the hero so the two sections read as one voice. */
 const DISPLAY = "text-4xl sm:text-5xl md:text-6xl xl:text-7xl 2xl:text-8xl";
-
-/** A crosshair that marks a corner of the media frame. */
-function Tick({ className }: { className: string }) {
-  return (
-    <span
-      aria-hidden
-      className={`pointer-events-none absolute size-4 ${className}`}
-    >
-      <span className="absolute left-1/2 top-0 h-full w-px bg-neutral-900" />
-      <span className="absolute left-0 top-1/2 h-px w-full bg-neutral-900" />
-    </span>
-  );
-}
 
 export default function Work() {
   const [active, setActive] = useState(0);
@@ -289,7 +279,7 @@ export default function Work() {
                     );
                   })}
 
-                  {"video" in current ? (
+                  {"video" in current && current.hasAudio !== false ? (
                     // The whole frame is the control: dimmed and marked while
                     // muted, clear once it has sound. Clicking again mutes.
                     <button

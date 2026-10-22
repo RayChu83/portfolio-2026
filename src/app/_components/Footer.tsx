@@ -352,7 +352,7 @@ export default function Footer() {
           are sized off type that scales with it. The canvases below are inset
           to this box exactly, so nothing is clipped today; this is what stops
           the next thing added here from putting that space back. */}
-      <footer className="sticky bottom-0 z-0 overflow-hidden bg-white">
+      <footer className="sticky bottom-0 z-0 overflow-hidden bg-white font-aeonik-regular">
         {/* Two cannons, one per side, each spanning the whole footer.
             Deliberately the footer and not the headline: particles need room to
             cross and fall, a canvas only clips what it is big enough to draw,
@@ -373,16 +373,16 @@ export default function Footer() {
 
         {/* `relative` only to lift the content off the canvases behind it —
             the confetti passes behind the type, never over it. */}
-        <div className="relative flex flex-col gap-16 px-6 pt-24 pb-12 md:gap-20 md:px-12 md:pt-32 lg:px-20">
-          <div className="text-center">
-            <p className="text-neutral-700 font-aeonik-regular text-2xl mb-4">
-              You&apos;ve reached the end!
+        <div className="relative flex flex-col">
+          <div className="border-b border-neutral-200 px-4 py-20 sm:px-8 md:py-28 lg:px-10">
+            <p className="mb-6 text-xl text-neutral-500">
+              You&apos;ve reached the end
             </p>
-            <h2 className="font-aeonik-medium text-5xl tracking-tighter text-balance text-black sm:text-6xl lg:text-7xl xl:text-8xl">
+            <h2 className="font-aeonik-regular text-5xl tracking-tighter text-balance text-neutral-500 sm:text-6xl lg:text-7xl">
               Congrats, you&rsquo;re the <br className="sm:block hidden" />
               {/* Tabular figures so the count-up cannot jitter the words after
                   it as the digits change. */}
-              <span className="tabular-nums">
+              <span className="tabular-nums text-neutral-900">
                 <span ref={countRef}>
                   {count === null ? "—" : format(count)}
                 </span>
@@ -393,27 +393,36 @@ export default function Footer() {
                     {ordinalSuffix(count)}
                   </sup>
                 )}
-              </span>{" "}
               visitor
+              </span>{" "}
             </h2>
           </div>
 
-          <ul className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
-            {LINKS.map(({ href, label, service }) => (
-              <li key={service} className="flex flex-col items-center gap-3.5">
+          <ul className="grid w-full grid-cols-1 sm:grid-cols-3">
+            {LINKS.map(({ href, label, service }, index) => (
+              <li
+                key={service}
+                className={`border-b border-neutral-200 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 ${
+                  index === 0 ? "bg-neutral-50" : ""
+                }`}
+              >
                 <Link
                   href={href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group flex w-full items-center justify-center gap-[0.4em] rounded-full bg-black px-6 py-6 font-aeonik-regular text-2xl tracking-tight text-white transition-[transform,background-color] duration-200 hover:-translate-y-0.5 hover:bg-neutral-800 focus-visible:-translate-y-0.5 focus-visible:bg-neutral-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:focus-visible:translate-y-0 sm:py-8 lg:text-4xl"
+                  className="group flex h-full w-full flex-col gap-10 px-4 py-6 outline-none transition-colors duration-200 hover:bg-neutral-100 focus-visible:bg-neutral-100 motion-reduce:transition-none sm:px-8 sm:py-8 lg:px-10"
                 >
-                  {label}
-                  <FaArrowUp
-                    aria-hidden
-                    className="size-[0.55em] rotate-45 text-white/50 transition-[transform,color] duration-200 group-hover:text-white group-focus-visible:text-white motion-reduce:transition-none"
-                  />
+                  <span className="text-sm text-neutral-500 sm:text-base">
+                    {label}
+                  </span>
+                  <span className="flex items-center gap-[0.4em] text-2xl tracking-tight text-neutral-900 lg:text-4xl">
+                    {service}
+                    <FaArrowUp
+                      aria-hidden
+                      className="size-[0.55em] rotate-45 text-neutral-500 transition-[transform,color] duration-200 group-hover:translate-x-1 group-hover:text-neutral-900 group-focus-visible:text-neutral-900 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                    />
+                  </span>
                 </Link>
-                <span className="text-neutral-500">{service}</span>
               </li>
             ))}
           </ul>
@@ -422,7 +431,7 @@ export default function Footer() {
         {/* `relative` for the same reason as the block above: the cannons are
             absolutely positioned over the whole footer, and a static sibling
             would sit under them. */}
-        <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3 bg-neutral-100 px-6 py-6 text-neutral-500 md:px-12 lg:px-20">
+        <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-neutral-200 px-4 py-5 text-sm text-neutral-500 sm:px-8 lg:px-10">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <span>&copy; {new Date().getFullYear()} Ray Chu</span>
             {/* The résumé PDF, not the GitHub profile this used to point at.
@@ -432,7 +441,7 @@ export default function Footer() {
               href={RESUME_PATH}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 transition-colors hover:text-black focus-visible:text-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-black motion-reduce:transition-none"
+              className="inline-flex items-center gap-1.5 text-neutral-900 transition-colors hover:text-black focus-visible:text-black focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-black motion-reduce:transition-none"
             >
               Resume
               <FaArrowUp aria-hidden className="size-3 rotate-45" />
