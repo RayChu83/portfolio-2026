@@ -18,3 +18,6 @@ export type ChunkMetadata = {
  */
 export const MIN_SCORE = 0.6;
 export const TOP_K = 5;
+
+/** Shared so the composer's `maxLength` and the route's validation cannot drift. */
+export const MAX_QUESTION_LENGTH = 500;

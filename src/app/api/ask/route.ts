@@ -3,6 +3,7 @@ import { Index } from "@upstash/vector";
 import { embed, generateText } from "ai";
 import {
   EMBEDDING_MODEL,
+  MAX_QUESTION_LENGTH,
   MIN_SCORE,
   TOP_K,
   type ChunkMetadata,
@@ -10,7 +11,6 @@ import {
 
 export const maxDuration = 30;
 
-const MAX_QUESTION_LENGTH = 500;
 const MAX_OUTPUT_TOKENS = 1500;
 const GENERATION_TIMEOUT_MS = 25_000;
 const NO_MATCH_MESSAGE = "I'm not sure about that. Try asking a different question.";

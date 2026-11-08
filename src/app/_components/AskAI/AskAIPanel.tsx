@@ -4,20 +4,25 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { RxArrowLeft, RxArrowUp } from "react-icons/rx";
 import { cn } from "@/lib/utils";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { MAX_QUESTION_LENGTH } from "@/lib/rag/config";
+import ChatLog from "./ChatLog";
+import { useAskChat, type AskChat } from "./useAskChat";
 
 type Props = {
   open: boolean;
   prefill: { text: string; nonce: number };
   onClose: () => void;
   slideMs: number;
+  chat: AskChat;
 };
 
-export default function AskAIPanel({ desktop, ...props }: Props & { desktop: boolean }) {
-  return desktop ? <SidePanel {...props} /> : <BottomDrawer {...props} />;
+export default function AskAIPanel({ desktop, ...props }: Omit<Props, "chat"> & { desktop: boolean }) {
+  const chat = useAskChat();
+  return desktop ? <SidePanel {...props} chat={chat} /> : <BottomDrawer {...props} chat={chat} />;
 }
 
 /** `lg` and up: a fixed `--ask-ai-width` column on the right that the page squishes for. */
-function SidePanel({ open, prefill, onClose, slideMs }: Props) {
+function SidePanel({ open, prefill, onClose, slideMs, chat }: Props) {
   return (
     <aside
       id="ask-ai-panel"
@@ -43,10 +48,10 @@ function SidePanel({ open, prefill, onClose, slideMs }: Props) {
         <h2 className="font-aeonik-medium text-sm text-neutral-900">Ask AI</h2>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" />
+      <ChatLog messages={chat.messages} pending={chat.pending} />
 
       {/* Remounted per prefill so a new selection replaces the draft without an effect syncing state. */}
-      <Composer key={prefill.nonce} open={open} initialValue={prefill.text} focusOnOpen />
+      <Composer key={prefill.nonce} open={open} initialValue={prefill.text} chat={chat} focusOnOpen />
     </aside>
   );
 }
@@ -56,7 +61,7 @@ function SidePanel({ open, prefill, onClose, slideMs }: Props) {
  * handle and no heading. The input is not focused on open, since that would
  * raise the keyboard over a drawer the user has not yet read.
  */
-function BottomDrawer({ open, prefill, onClose }: Props) {
+function BottomDrawer({ open, prefill, chat, onClose }: Props) {
   return (
     <Drawer
       open={open}
@@ -71,8 +76,8 @@ function BottomDrawer({ open, prefill, onClose }: Props) {
         aria-label="Ask AI"
         className="z-100 rounded-t-3xl rounded-b-none border-x-0 border-b-0 [--drawer-content-height:85dvh] [--drawer-content-max-height:85dvh] [--drawer-inset:0px]"
       >
-        <div className="min-h-0 flex-1 overflow-y-auto" />
-        <Composer key={prefill.nonce} open={open} initialValue={prefill.text} />
+        <ChatLog messages={chat.messages} pending={chat.pending} />
+        <Composer key={prefill.nonce} open={open} initialValue={prefill.text} chat={chat} />
       </DrawerContent>
     </Drawer>
   );
@@ -81,10 +86,12 @@ function BottomDrawer({ open, prefill, onClose }: Props) {
 function Composer({
   open,
   initialValue,
+  chat,
   focusOnOpen = false,
 }: {
   open: boolean;
   initialValue: string;
+  chat: AskChat;
   focusOnOpen?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
@@ -103,12 +110,22 @@ function Composer({
 
   useEffect(resize, [value]);
 
-  // Submitting is deliberately a no-op in this pass; the backend is not built.
-  const onSubmit = (event: FormEvent) => event.preventDefault();
+  const submit = () => {
+    const question = value.trim();
+    if (!question || chat.pending) return;
+    setValue("");
+    void chat.send(question);
+  };
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    submit();
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
+      submit();
     }
   };
 
@@ -124,13 +141,14 @@ function Composer({
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={onKeyDown}
           rows={1}
+          maxLength={MAX_QUESTION_LENGTH}
           aria-label="Message"
           placeholder="Summarize Rays work experience"
           className="block w-full resize-none border-0 bg-white py-5 pr-14 pl-4 text-sm text-neutral-600 outline-none placeholder:text-neutral-400"
         />
         <button
           type="submit"
-          disabled={!value.trim()}
+          disabled={!value.trim() || chat.pending}
           aria-label="Send"
           className="absolute right-3 bottom-3 grid size-8 cursor-pointer place-items-center rounded-full bg-neutral-900 text-white transition-opacity disabled:cursor-default disabled:opacity-20"
         >
