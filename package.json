@@ -7,15 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "generate:map": "node scripts/generate-map.mjs"
+    "generate:map": "node scripts/generate-map.mjs",
+    "index": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/index.mjs"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.111",
     "@base-ui/react": "^1.7.0",
     "@base-ui/utils": "^0.3.2",
     "@gsap/react": "^2.1.2",
     "@paper-design/shaders-react": "^0.0.81",
     "@types/canvas-confetti": "^1.9.0",
     "@upstash/redis": "^1.38.3",
+    "@upstash/vector": "^1.2.3",
+    "ai": "^7.0.165",
     "canvas-confetti": "^1.9.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

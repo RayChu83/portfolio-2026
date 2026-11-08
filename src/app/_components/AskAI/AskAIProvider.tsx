@@ -3,9 +3,7 @@
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -14,32 +12,16 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "../../_hooks/useMediaQuery";
+import { AskAIContext } from "./AskAIContext";
 import AskAIPanel from "./AskAIPanel";
 import SelectionAskButton from "./SelectionAskButton";
 
 gsap.registerPlugin(ScrollTrigger);
 
-/** Width of the panel at `lg` and above. Below it the panel covers the screen. */
-export const PANEL_WIDTH = 356;
-
 /** Matches the `duration-*` on the page wrapper and the panel below. */
 const SLIDE_MS = 400;
 
 type Prefill = { text: string; nonce: number };
-
-type AskAIContextValue = {
-  open: boolean;
-  openWith: (text?: string) => void;
-  close: () => void;
-};
-
-const AskAIContext = createContext<AskAIContextValue>({
-  open: false,
-  openWith: () => {},
-  close: () => {},
-});
-
-export const useAskAI = () => useContext(AskAIContext);
 
 /**
  * Owns whether the panel is open, renders the panel, and squishes the page
@@ -89,7 +71,7 @@ export default function AskAIProvider({ children }: { children: ReactNode }) {
       <div
         className={cn(
           "transition-[margin] ease-[cubic-bezier(0.76,0,0.24,1)] motion-reduce:transition-none",
-          open && "lg:mr-[356px]",
+          open && "lg:mr-(--ask-ai-width)",
         )}
         style={{ transitionDuration: `${SLIDE_MS}ms` }}
       >

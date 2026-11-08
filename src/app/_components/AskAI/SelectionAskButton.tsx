@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAskAI } from "./AskAIProvider";
+import { useAskAI } from "./AskAIContext";
 
 type Anchor = { x: number; y: number; below: boolean; text: string };
 

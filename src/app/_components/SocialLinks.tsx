@@ -6,7 +6,7 @@ import { RESUME_PATH } from "@/lib/site";
 import { MdArrowOutward } from "react-icons/md";
 import { RxCross1, RxHamburgerMenu } from "react-icons/rx";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
-import { useAskAI } from "./AskAI/AskAIProvider";
+import { useAskAI } from "./AskAI/AskAIContext";
 
 const LINKS = [
   { href: "mailto:chu.ray1219@gmail.com", label: "Send an Email" },
@@ -217,7 +217,7 @@ export default function SocialLinks() {
         aria-label={open ? "Close menu" : "Open menu"}
         className={`fixed top-0 right-0 z-95 cursor-pointer p-6 text-white mix-blend-difference transition-transform duration-200 hover:scale-110 focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-current sm:p-8 motion-reduce:transition-none motion-reduce:hover:scale-100 ${
           askAIOpen
-            ? "max-lg:pointer-events-none max-lg:opacity-0 lg:right-[356px]"
+            ? "max-lg:pointer-events-none max-lg:opacity-0 lg:right-(--ask-ai-width)"
             : ""
         }`}
       >

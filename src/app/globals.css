@@ -67,6 +67,8 @@ html {
    ---break---
    */
 :root {
+  /* Width of the Ask AI panel at `lg`; the page margin, panel and menu offset all follow it. */
+  --ask-ai-width: 356px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
