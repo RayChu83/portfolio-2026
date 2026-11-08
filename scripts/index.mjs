@@ -21,7 +21,7 @@ const RANGE_PAGE = 1000;
 const REQUIRED_ENV = ["OPENAI_API_KEY", "UPSTASH_VECTOR_REST_URL", "UPSTASH_VECTOR_REST_TOKEN"];
 
 const args = process.argv.slice(2);
-const dir = resolve(process.cwd(), args.find((a) => !a.startsWith("--")) ?? "knowledge");
+const dir = resolve(process.cwd(), args.find((a) => !a.startsWith("--")) ?? "rag");
 const dryRun = args.includes("--dry-run");
 
 function printDryRun(docs) {

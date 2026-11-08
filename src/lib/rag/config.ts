@@ -10,3 +10,11 @@ export type ChunkMetadata = {
   chunkIndex: number;
   text: string;
 };
+
+/**
+ * Floor for a retrieved chunk to count as relevant. Upstash reports cosine on a 0-1 scale,
+ * so unrelated text still scores ~0.5. Calibrated on the 8-vector corpus: in-scope questions
+ * topped out at >=0.62, off-topic ones at <=0.59. Recalibrate when the corpus grows.
+ */
+export const MIN_SCORE = 0.6;
+export const TOP_K = 5;
