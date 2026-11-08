@@ -31,7 +31,7 @@ function SidePanel({ open, prefill, onClose, slideMs, chat }: Props) {
       inert={!open}
       aria-hidden={!open}
       className={cn(
-        "fixed inset-y-0 right-0 z-100 flex h-dvh w-(--ask-ai-width) flex-col border-l border-border bg-white transition-transform ease-[cubic-bezier(0.76,0,0.24,1)] motion-reduce:transition-none",
+        "fixed inset-y-0 right-0 z-100 flex h-dvh w-(--ask-ai-width) flex-col border-l border-border transition-transform ease-[cubic-bezier(0.76,0,0.24,1)] motion-reduce:transition-none",
         open ? "translate-x-0" : "pointer-events-none translate-x-full",
       )}
       style={{ transitionDuration: `${slideMs}ms` }}

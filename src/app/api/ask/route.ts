@@ -8,12 +8,14 @@ import {
   TOP_K,
   type ChunkMetadata,
 } from "@/lib/rag/config";
+import { allowAsk } from "@/lib/server/ask-rate-limit";
 
 export const maxDuration = 30;
 
 const MAX_OUTPUT_TOKENS = 1500;
 const GENERATION_TIMEOUT_MS = 25_000;
 const NO_MATCH_MESSAGE = "I'm not sure about that. Try asking a different question.";
+const RATE_LIMIT_MESSAGE = "Rate limit exceeded";
 const ERROR_MESSAGE = "Something went wrong. Please try again.";
 
 const SYSTEM_PROMPT = `You answer questions about the owner of this portfolio website.
@@ -63,6 +65,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (!(await allowAsk(request.headers))) {
+      return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
+    }
+
     const { embedding } = await embed({
       model: openai.embedding(EMBEDDING_MODEL),
       value: question,

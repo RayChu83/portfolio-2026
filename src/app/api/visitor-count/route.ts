@@ -1,24 +1,13 @@
 import { createHash } from "node:crypto";
-import { Redis } from "@upstash/redis";
 import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { DEVICE_HINT_HEADER } from "@/lib/device-hint";
-
-const redis = Redis.fromEnv();
-
-/**
- * Whether this request is running in the real, live deployment.
- *
- * `VERCEL_ENV` is what actually distinguishes the three contexts Vercel runs
- * code in — `"development"`, `"preview"`, `"production"` — where `NODE_ENV`
- * alone cannot: a PR preview deployment still runs `next build`, so its
- * `NODE_ENV` is `"production"` too. Falling back to `NODE_ENV` only when
- * `VERCEL_ENV` is unset covers everywhere else code runs without going
- * through Vercel at all — `next dev` on a laptop, most notably.
- */
-const isProduction =
-  process.env.VERCEL_ENV === "production" ||
-  (!process.env.VERCEL_ENV && process.env.NODE_ENV === "production");
+import {
+  hashedClientIp,
+  isProduction,
+  redis,
+  requireSalt,
+} from "@/lib/server/network";
 
 /**
  * Redis is key-value, not tables — there is nothing to migrate or seed ahead
@@ -90,19 +79,6 @@ const MAX_DEVICES_PER_NETWORK = 10;
 const MAX_HINT_LENGTH = 128;
 
 /**
- * The hashing salt, or a loud failure.
- *
- * Read per call rather than captured at module load so a deployment that sets
- * the variable late still picks it up, and so the error names the actual
- * problem instead of surfacing as a hash of the string `"undefined"`.
- */
-function requireSalt() {
-  const salt = process.env.VISITOR_SALT;
-  if (!salt) throw new Error("VISITOR_SALT is not set");
-  return salt;
-}
-
-/**
  * The platform tokens out of a User-Agent string — the parenthesised segment,
  * with everything browser-specific taken back out of it.
  *
@@ -152,19 +128,7 @@ function platformFamily(userAgent: string) {
  * check.
  */
 function networkKey(h: Headers) {
-  const salt = requireSalt();
-
-  // The first hop only — `x-forwarded-for` is a client-appended chain, and
-  // every entry after the first is whichever proxies the request transited,
-  // not the visitor.
-  const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim();
-
-  const digest = createHash("sha256")
-    .update([salt, ip].join("|"))
-    .digest("base64url")
-    .slice(0, 22);
-
-  return `${networkKeyPrefix}${digest}`;
+  return `${networkKeyPrefix}${hashedClientIp(h)}`;
 }
 
 /**

@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Message, MessageContent, MessageGroup } from "@/components/ui/message";
+import StreamedText from "./StreamedText";
 import type { AskChat } from "./useAskChat";
 
 export default function ChatLog({ messages, pending }: Pick<AskChat, "messages" | "pending">) {
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const scrollToEnd = useCallback(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, pending]);
+  }, []);
+
+  useEffect(scrollToEnd, [messages, pending, scrollToEnd]);
 
   return (
-    <div role="log" aria-live="polite" className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <MessageGroup className="gap-4">
+    <div role="log" aria-live="polite" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+      <MessageGroup className="gap-6">
         {messages.map(({ id, role, text, failed }) => (
           <Message key={id} align={role === "user" ? "end" : "start"}>
             <MessageContent>
@@ -27,7 +30,7 @@ export default function ChatLog({ messages, pending }: Pick<AskChat, "messages" 
                   failed && "text-red-600",
                 )}
               >
-                {text}
+                {role === "assistant" ? <StreamedText id={id} text={text} onGrow={scrollToEnd} /> : text}
               </p>
             </MessageContent>
           </Message>
