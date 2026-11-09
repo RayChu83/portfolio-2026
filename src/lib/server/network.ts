@@ -21,12 +21,32 @@ export function requireSalt() {
   return salt;
 }
 
-/** Salted digest of the client IP, so Redis never holds a raw address. */
+/**
+ * The address a client cannot cheaply rotate within: an IPv6 host usually
+ * owns a whole /64, so it is keyed by that prefix. IPv4 passes through.
+ */
+function clientNetwork(ip: string) {
+  if (!ip.includes(":")) return ip;
+  const lower = ip.toLowerCase();
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped) return mapped[1];
+  const [head, tail] = lower.split("::");
+  const groups = head ? head.split(":") : [];
+  if (tail !== undefined) {
+    const rest = tail ? tail.split(":") : [];
+    const zeros = Math.max(0, 8 - groups.length - rest.length);
+    groups.push(...Array(zeros).fill("0"), ...rest);
+  }
+  const prefix = groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16));
+  return `${prefix.join(":")}::/64`;
+}
+
+/** Salted digest of the client's network, so Redis never holds a raw address. */
 export function hashedClientIp(h: Headers) {
   // First hop only: later `x-forwarded-for` entries are proxies, not the visitor.
   const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim();
   return createHash("sha256")
-    .update([requireSalt(), ip].join("|"))
+    .update([requireSalt(), clientNetwork(ip)].join("|"))
     .digest("base64url")
     .slice(0, 22);
 }
