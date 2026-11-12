@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "generate:map": "node scripts/generate-map.mjs",
+    "eval:ask": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/eval-ask.mjs",
     "index": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/index.mjs"
   },
   "dependencies": {

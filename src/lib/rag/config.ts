@@ -12,6 +12,8 @@ export type ChunkMetadata = {
 };
 
 /**
+ * Cost pre-filter only, not a scope boundary: it skips the LLM call for clearly unrelated text,
+ * but on-topic and off-topic scores sit ~0.03 apart. Scope is enforced by the system prompt.
  * Floor for a retrieved chunk to count as relevant. Upstash reports cosine on a 0-1 scale,
  * so unrelated text still scores ~0.5. Calibrated on the 8-vector corpus: in-scope questions
  * topped out at >=0.62, off-topic ones at <=0.59. Recalibrate when the corpus grows.
