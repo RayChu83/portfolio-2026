@@ -22,6 +22,15 @@ export function requireSalt() {
 }
 
 /**
+ * Whether a browser says another site initiated this request. Absent means a
+ * non-browser client or an old browser, which this check cannot judge.
+ */
+export function isCrossSite(h: Headers) {
+  const site = h.get("sec-fetch-site");
+  return site !== null && site !== "same-origin";
+}
+
+/**
  * The address a client cannot cheaply rotate within: an IPv6 host usually
  * owns a whole /64, so it is keyed by that prefix. IPv4 passes through.
  */

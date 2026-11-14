@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { DEVICE_HINT_HEADER } from "@/lib/device-hint";
 import {
   hashedClientIp,
+  isCrossSite,
   isProduction,
   redis,
   requireSalt,
@@ -205,6 +206,15 @@ function deviceDigest(h: Headers) {
  * cached response would hand every visitor the first visitor's count.
  */
 export async function GET() {
+  // An `<img>` on another site would otherwise count every one of its viewers
+  // from their own IP. Requiring the custom hint header covers browsers that
+  // predate `Sec-Fetch-Site`, since a cross-origin page cannot send it without
+  // a CORS preflight this route never answers.
+  const requestHeaders = await headers();
+  if (isCrossSite(requestHeaders) || !requestHeaders.has(DEVICE_HINT_HEADER)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const cookieStore = await cookies();
   const alreadyCounted = cookieStore.has(COUNTED_COOKIE);
 
@@ -215,7 +225,6 @@ export async function GET() {
   if (alreadyCounted) {
     count = await readCount();
   } else {
-    const requestHeaders = await headers();
     const key = networkKey(requestHeaders);
     const device = deviceDigest(requestHeaders);
 
