@@ -47,7 +47,7 @@ let failed = 0;
 for (const { kind, q, expect } of CASES) {
   const results = await Promise.all(
     Array.from({ length: runs }, async () => {
-      const a = await answerQuestion(q, chunks);
+      const a = await answerQuestion(q, chunks, AbortSignal.timeout(25_000));
       const pass = expect ? a !== "" && a !== REFUSAL_MESSAGE && expect.test(a) : a === REFUSAL_MESSAGE;
       return { a, pass };
     }),

@@ -4,7 +4,6 @@ import type { ChunkMetadata } from "./config.ts";
 
 /** Reasoning tokens count against this cap, so it must leave room for them at low effort. */
 export const MAX_OUTPUT_TOKENS = 700;
-const GENERATION_TIMEOUT_MS = 25_000;
 
 /** Returned verbatim for no retrieval match and for any refused request, so a refusal is machine-checkable. */
 export const REFUSAL_MESSAGE = "I'm not sure about that. Try asking a different question.";
@@ -31,14 +30,19 @@ function buildSystem(chunks: Retrieved[]): string {
   return `${SYSTEM_PROMPT}\n\n<context>\n${context}\n</context>`;
 }
 
-export async function answerQuestion(question: string, chunks: Retrieved[]): Promise<string> {
+export async function answerQuestion(
+  question: string,
+  chunks: Retrieved[],
+  abortSignal: AbortSignal,
+): Promise<string> {
   const { text } = await generateText({
     model: openai("gpt-5-mini"),
     system: buildSystem(chunks),
     prompt: question,
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     providerOptions: { openai: { reasoningEffort: "low" } },
-    abortSignal: AbortSignal.timeout(GENERATION_TIMEOUT_MS),
+    maxRetries: 1,
+    abortSignal,
   });
   return text.trim();
 }

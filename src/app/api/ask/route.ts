@@ -12,11 +12,11 @@ import { answerQuestion, REFUSAL_MESSAGE, type Retrieved } from "@/lib/rag/answe
 import { allowAsk } from "@/lib/server/ask-rate-limit";
 
 export const maxDuration = 30;
+/** Leaves headroom under maxDuration so an overrun ends in our 500, not a platform kill. */
+const DEADLINE_MS = 25_000;
 
 const RATE_LIMIT_MESSAGE = "Rate limit exceeded";
 const ERROR_MESSAGE = "Something went wrong. Please try again.";
-
-const index = new Index<ChunkMetadata>();
 
 function selectRelevant(
   matches: { score: number; metadata?: ChunkMetadata }[],
@@ -39,6 +39,7 @@ async function parseQuestion(request: Request): Promise<string | null> {
 }
 
 export async function POST(request: Request) {
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(DEADLINE_MS)]);
   const question = await parseQuestion(request);
   if (question === null) {
     return badRequest(`Send a non-empty question of at most ${MAX_QUESTION_LENGTH} characters.`);
@@ -52,7 +53,11 @@ export async function POST(request: Request) {
     const { embedding } = await embed({
       model: openai.embedding(EMBEDDING_MODEL),
       value: question,
+      maxRetries: 1,
+      abortSignal: signal,
     });
+    // A plain signal makes the Upstash client fake a 200 on abort; the function form rethrows.
+    const index = new Index<ChunkMetadata>({ signal: () => signal, retry: { retries: 1 } });
     const matches = await index.query({
       vector: embedding,
       topK: TOP_K,
@@ -61,7 +66,7 @@ export async function POST(request: Request) {
     const chunks = selectRelevant(matches);
     if (!chunks.length) return Response.json({ answer: REFUSAL_MESSAGE });
 
-    return Response.json({ answer: await answerQuestion(question, chunks) });
+    return Response.json({ answer: await answerQuestion(question, chunks, signal) });
   } catch (error) {
     console.error("ask route failed", error);
     return Response.json({ error: ERROR_MESSAGE }, { status: 500 });
