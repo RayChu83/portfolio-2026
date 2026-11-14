@@ -6,6 +6,7 @@ import { RESUME_PATH } from "@/lib/site";
 import { MdArrowOutward } from "react-icons/md";
 import { RxCross1, RxHamburgerMenu } from "react-icons/rx";
 import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
+import { useAskAI } from "./AskAI/AskAIContext";
 
 const LINKS = [
   { href: "mailto:chu.ray1219@gmail.com", label: "Send an Email" },
@@ -66,6 +67,7 @@ const EASE = "cubic-bezier(0.76, 0, 0.24, 1)";
 export default function SocialLinks() {
   const [open, setOpen] = useState(false);
   const reduceMotion = usePrefersReducedMotion();
+  const { open: askAIOpen, openWith } = useAskAI();
 
   // Scroll lock. The sheet covers the viewport, so anything the wheel does
   // behind it is invisible movement the visitor cannot see the result of —
@@ -180,6 +182,29 @@ export default function SocialLinks() {
               </Link>
             </span>
           ))}
+          <span className="block overflow-hidden py-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                openWith();
+              }}
+              className={`group flex cursor-pointer items-baseline gap-3 font-aeonik-regular text-5xl tracking-tighter text-neutral-900 transition-[transform,opacity] sm:text-7xl lg:text-8xl motion-reduce:!translate-y-0 motion-reduce:!opacity-100 motion-reduce:transition-none ${
+                open ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
+              }`}
+              style={{
+                transitionDuration: `${reduceMotion ? 0 : SHEET_MS}ms`,
+                transitionTimingFunction: EASE,
+                transitionDelay: reduceMotion
+                  ? "0ms"
+                  : open
+                    ? `${100 + LINKS.length * LINE_STAGGER_MS}ms`
+                    : "0ms",
+              }}
+            >
+              Ask AI
+            </button>
+          </span>
         </nav>
       </div>
 
@@ -190,7 +215,11 @@ export default function SocialLinks() {
         aria-expanded={open}
         aria-controls="site-menu"
         aria-label={open ? "Close menu" : "Open menu"}
-        className="fixed top-0 right-0 z-95 cursor-pointer p-6 text-white mix-blend-difference transition-transform duration-200 hover:scale-110 focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-current sm:p-8 motion-reduce:transition-none motion-reduce:hover:scale-100"
+        className={`fixed top-0 right-0 z-95 cursor-pointer p-6 text-white mix-blend-difference transition-transform duration-200 hover:scale-110 focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-current sm:p-8 motion-reduce:transition-none motion-reduce:hover:scale-100 ${
+          askAIOpen
+            ? "max-lg:pointer-events-none max-lg:opacity-0 lg:right-(--ask-ai-width)"
+            : ""
+        }`}
       >
         {open ? (
           <RxCross1 className="size-6 sm:size-8 lg:size-10" aria-hidden />
