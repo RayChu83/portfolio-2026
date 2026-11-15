@@ -23,3 +23,12 @@ export const TOP_K = 5;
 
 /** Shared so the composer's `maxLength` and the route's validation cannot drift. */
 export const MAX_QUESTION_LENGTH = 500;
+
+/** Returned verbatim for no retrieval match and for any refused request, so a refusal is machine-checkable. */
+export const REFUSAL_MESSAGE = "I'm not sure about that. Try asking a different question.";
+
+/** One earlier question and its answer. Sent by the client, so the server treats it as untrusted. */
+export type Exchange = { question: string; answer: string };
+
+export const MAX_HISTORY_TURNS = 4;
+export const MAX_HISTORY_ANSWER_LENGTH = 1000;

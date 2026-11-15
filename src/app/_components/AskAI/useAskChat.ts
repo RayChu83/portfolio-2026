@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { MAX_HISTORY_TURNS, REFUSAL_MESSAGE, type Exchange } from "@/lib/rag/config";
 
 export type ChatMessage = {
   id: string;
@@ -11,11 +12,25 @@ export type ChatMessage = {
 
 const FALLBACK_ERROR = "Something went wrong. Please try again.";
 
-async function ask(question: string): Promise<string> {
+/** Refusals are left out so the model is not primed to repeat them. */
+function recentHistory(messages: ChatMessage[]): Exchange[] {
+  const exchanges = messages.flatMap((message, i) => {
+    const prev = messages[i - 1];
+    const usable =
+      message.role === "assistant" &&
+      prev?.role === "user" &&
+      !message.failed &&
+      message.text !== REFUSAL_MESSAGE;
+    return usable ? [{ question: prev.text, answer: message.text }] : [];
+  });
+  return exchanges.slice(-MAX_HISTORY_TURNS);
+}
+
+async function ask(question: string, history: Exchange[]): Promise<string> {
   const response = await fetch("/api/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, history }),
   });
   const body: { answer?: string; error?: string } = await response.json().catch(() => ({}));
   if (!response.ok || typeof body.answer !== "string") {
@@ -32,11 +47,12 @@ export function useAskChat() {
   const send = useCallback(
     async (question: string) => {
       if (pending) return;
+      const history = recentHistory(messages);
       setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text: question }]);
       setPending(true);
       let reply: Omit<ChatMessage, "id">;
       try {
-        reply = { role: "assistant", text: await ask(question) };
+        reply = { role: "assistant", text: await ask(question, history) };
       } catch (error) {
         const text = error instanceof Error ? error.message : FALLBACK_ERROR;
         reply = { role: "assistant", text, failed: true };
@@ -44,7 +60,7 @@ export function useAskChat() {
       setMessages((m) => [...m, { id: crypto.randomUUID(), ...reply }]);
       setPending(false);
     },
-    [pending],
+    [messages, pending],
   );
 
   return { messages, pending, send };

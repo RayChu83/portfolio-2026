@@ -5,10 +5,14 @@ import {
   EMBEDDING_MODEL,
   MAX_QUESTION_LENGTH,
   MIN_SCORE,
+  REFUSAL_MESSAGE,
   TOP_K,
   type ChunkMetadata,
+  type Exchange,
 } from "@/lib/rag/config";
-import { answerQuestion, REFUSAL_MESSAGE, type Retrieved } from "@/lib/rag/answer";
+import { answerQuestion, type Retrieved } from "@/lib/rag/answer";
+import { standaloneQuery } from "@/lib/rag/condense";
+import { parseHistory } from "@/lib/rag/history";
 import { allowAsk } from "@/lib/server/ask-rate-limit";
 import { isCrossSite } from "@/lib/server/network";
 
@@ -37,12 +41,15 @@ function isJson(request: Request) {
   return mediaType === "application/json";
 }
 
-async function parseQuestion(request: Request): Promise<string | null> {
+async function parseBody(
+  request: Request,
+): Promise<{ question: string; history: Exchange[] } | null> {
   const body: unknown = await request.json().catch(() => null);
   if (typeof body !== "object" || body === null || !("question" in body)) return null;
   if (typeof body.question !== "string") return null;
   const question = body.question.trim();
-  return question && question.length <= MAX_QUESTION_LENGTH ? question : null;
+  if (!question || question.length > MAX_QUESTION_LENGTH) return null;
+  return { question, history: parseHistory("history" in body ? body.history : undefined) };
 }
 
 export async function POST(request: Request) {
@@ -54,19 +61,21 @@ export async function POST(request: Request) {
   }
 
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(DEADLINE_MS)]);
-  const question = await parseQuestion(request);
-  if (question === null) {
+  const body = await parseBody(request);
+  if (body === null) {
     return badRequest(`Send a non-empty question of at most ${MAX_QUESTION_LENGTH} characters.`);
   }
+  const { question, history } = body;
 
   try {
     if (!(await allowAsk(request.headers))) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
+    const query = await standaloneQuery(question, history, signal);
     const { embedding } = await embed({
       model: openai.embedding(EMBEDDING_MODEL),
-      value: question,
+      value: query,
       maxRetries: 1,
       abortSignal: signal,
     });
@@ -88,7 +97,7 @@ export async function POST(request: Request) {
     const chunks = selectRelevant(matches);
     if (!chunks.length) return Response.json({ answer: REFUSAL_MESSAGE });
 
-    return Response.json({ answer: await answerQuestion(question, chunks, signal) });
+    return Response.json({ answer: await answerQuestion(question, chunks, history, signal) });
   } catch (error) {
     console.error("ask route failed", error);
     return Response.json({ error: ERROR_MESSAGE }, { status: 500 });
