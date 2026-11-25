@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
-    const smallTalk = await replyIfSmallTalk(question, signal);
+    const smallTalk = await replyIfSmallTalk(question, history.at(-1)?.answer, signal);
     if (smallTalk !== null) return Response.json({ answer: smallTalk });
 
     const query = await standaloneQuery(question, history, signal);

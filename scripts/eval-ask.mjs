@@ -4,11 +4,13 @@
  *
  * Usage: npm run eval:ask -- [runs]   (default 3 runs per case; every run must pass)
  * Refusal cases must return REFUSAL_MESSAGE exactly. In-scope cases must answer and mention `expect`.
+ * Gate cases check whether replyIfSmallTalk takes a message, given the assistant's previous answer.
  * Rewrite cases check the search query standaloneQuery builds from the history, not an answer.
  */
 import { resolve } from "node:path";
 import { answerQuestion } from "../src/lib/rag/answer.ts";
 import { standaloneQuery } from "../src/lib/rag/condense.ts";
+import { replyIfSmallTalk } from "../src/lib/rag/small-talk.ts";
 import { REFUSAL_MESSAGE } from "../src/lib/rag/config.ts";
 import { loadCorpus } from "./lib/chunk.mjs";
 
@@ -66,6 +68,17 @@ const REWRITE_CASES = [
   },
 ];
 
+const WORKED = "Ray has worked at Blitz and Unlevered.";
+const GATE_CASES = [
+  { previousAnswer: WORKED, q: "wow, really?", smallTalk: false },
+  { previousAnswer: WORKED, q: "hmm", smallTalk: false },
+  { previousAnswer: WORKED, q: "really?", smallTalk: false },
+  { previousAnswer: WORKED, q: "thank you so much", smallTalk: true },
+  { previousAnswer: WORKED, q: "lol", smallTalk: true },
+  { previousAnswer: WORKED, q: "nice", smallTalk: true },
+  { previousAnswer: undefined, q: "hi", smallTalk: true },
+];
+
 const docs = await loadCorpus(resolve(process.cwd(), "rag"));
 const chunks = docs.flatMap((d) =>
   d.chunks.map((c) => ({
@@ -105,6 +118,19 @@ for (const { history, q, expect, reject } of REWRITE_CASES) {
   for (const r of results) console.log(`       -> ${JSON.stringify(r.a)}`);
 }
 
-const total = (CASES.length + REWRITE_CASES.length) * runs;
+for (const { previousAnswer, q, smallTalk } of GATE_CASES) {
+  const results = await Promise.all(
+    Array.from({ length: runs }, async () => {
+      const a = await replyIfSmallTalk(q, previousAnswer, AbortSignal.timeout(25_000));
+      return { a, pass: (a !== null) === smallTalk };
+    }),
+  );
+  const bad = results.filter((r) => !r.pass);
+  failed += bad.length;
+  console.log(`${bad.length ? "FAIL" : "ok  "} [gate] ${q} (expect ${smallTalk ? "small talk" : "RAG"})`);
+  for (const r of bad) console.log(`       -> ${JSON.stringify(r.a)}`);
+}
+
+const total = (CASES.length + REWRITE_CASES.length + GATE_CASES.length) * runs;
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);
