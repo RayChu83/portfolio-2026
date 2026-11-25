@@ -13,6 +13,7 @@ import {
 import { answerQuestion, type Retrieved } from "@/lib/rag/answer";
 import { standaloneQuery } from "@/lib/rag/condense";
 import { parseHistory } from "@/lib/rag/history";
+import { replyIfSmallTalk } from "@/lib/rag/small-talk";
 import { allowAsk } from "@/lib/server/ask-rate-limit";
 import { isCrossSite } from "@/lib/server/network";
 
@@ -71,6 +72,9 @@ export async function POST(request: Request) {
     if (!(await allowAsk(request.headers))) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
+
+    const smallTalk = await replyIfSmallTalk(question, signal);
+    if (smallTalk !== null) return Response.json({ answer: smallTalk });
 
     const query = await standaloneQuery(question, history, signal);
     const { embedding } = await embed({

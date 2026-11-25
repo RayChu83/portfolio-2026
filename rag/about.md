@@ -4,7 +4,7 @@ title: About Ray Chu
 
 # About Ray Chu
 
-Ray Chu is a Software Engineer based in New York City who specializes in building with careful UI design. He is a Computer Science student at Hunter College and has completed two software engineering internships, at Blitz and Unlevered. His site is raychu.info.
+Ray Chu is a Software Engineer based in New York City who specializes in building with careful UI design. He is a Computer Science student at Hunter College and has completed two past software engineering internships, at Blitz and Unlevered. His site is raychu.info.
 
 ## Links
 
