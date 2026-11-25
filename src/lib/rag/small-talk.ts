@@ -46,6 +46,7 @@ async function isSmallTalk(
 
 /**
  * Returns a reply when the whole message is small talk, otherwise null so the caller runs RAG.
+ * The reply model refuses when the gate let through a message that asks for more, and that refusal also reads as null.
  * Only the gate sees the previous answer, so a follow-up like "wow, really?" routes to RAG.
  * The reply model sees only the message: no history and no retrieved chunks, so it has no facts to leak.
  */
@@ -65,7 +66,8 @@ export async function replyIfSmallTalk(
       maxRetries: 0,
       abortSignal: AbortSignal.any([signal, AbortSignal.timeout(REPLY_TIMEOUT_MS)]),
     });
-    return text.trim() || null;
+    const reply = text.trim();
+    return reply && reply !== REFUSAL_MESSAGE ? reply : null;
   } catch (error) {
     if (signal.aborted) throw error;
     console.warn("small-talk reply failed, using the RAG path", error);
