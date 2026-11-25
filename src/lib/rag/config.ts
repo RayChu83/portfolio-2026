@@ -32,3 +32,5 @@ export type Exchange = { question: string; answer: string };
 
 export const MAX_HISTORY_TURNS = 4;
 export const MAX_HISTORY_ANSWER_LENGTH = 1000;
+/** Cost backstop on the whole history, applied after the turn cap. Fits two maximum-size exchanges. */
+export const MAX_HISTORY_CHARS = 3000;

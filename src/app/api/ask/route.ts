@@ -44,13 +44,15 @@ function isJson(request: Request) {
 
 async function parseBody(
   request: Request,
-): Promise<{ question: string; history: Exchange[] } | null> {
+): Promise<{ question: string; history: Exchange[]; previousAnswer?: string } | null> {
   const body: unknown = await request.json().catch(() => null);
   if (typeof body !== "object" || body === null || !("question" in body)) return null;
   if (typeof body.question !== "string") return null;
   const question = body.question.trim();
   if (!question || question.length > MAX_QUESTION_LENGTH) return null;
-  return { question, history: parseHistory("history" in body ? body.history : undefined) };
+  const previousAnswer =
+    "previousAnswer" in body && typeof body.previousAnswer === "string" ? body.previousAnswer : undefined;
+  return { question, history: parseHistory("history" in body ? body.history : undefined), previousAnswer };
 }
 
 export async function POST(request: Request) {
@@ -66,15 +68,15 @@ export async function POST(request: Request) {
   if (body === null) {
     return badRequest(`Send a non-empty question of at most ${MAX_QUESTION_LENGTH} characters.`);
   }
-  const { question, history } = body;
+  const { question, history, previousAnswer } = body;
 
   try {
     if (!(await allowAsk(request.headers))) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
-    const smallTalk = await replyIfSmallTalk(question, history.at(-1)?.answer, signal);
-    if (smallTalk !== null) return Response.json({ answer: smallTalk });
+    const smallTalk = await replyIfSmallTalk(question, previousAnswer, signal);
+    if (smallTalk !== null) return Response.json({ answer: smallTalk, smallTalk: true });
 
     const query = await standaloneQuery(question, history, signal);
     const { embedding } = await embed({
