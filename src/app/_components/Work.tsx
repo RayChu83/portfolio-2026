@@ -3,324 +3,165 @@
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { BsVolumeMuteFill } from "react-icons/bs";
-import { usePrefersReducedMotion } from "../_hooks/usePrefersReducedMotion";
-import BlitzShowcase from "./BlitzShowcase";
-import Tick from "./Tick";
-import { MdArrowOutward } from "react-icons/md";
+import { CreditCard, IdBadge } from "kubai-icons-react/duotone";
+import { Code, GitPullRequest, Mails } from "kubai-icons-react/line";
+import Image from "next/image";
+import { useRef, useState } from "react";
+import blitzLogo from "../../../public/blitz/blitz_logo.jpeg";
+import dashboard from "../../../public/blitz/dashboard.png";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
-// A mobile address bar sliding away is a viewport resize, and a resize is a
-// full ScrollTrigger refresh. The section is sized in `dvh` and absorbs the
-// change on its own, so the refresh is skipped.
-ScrollTrigger.config({ ignoreMobileResize: true });
+const HIGHLIGHTS = [
+  {
+    Icon: Code,
+    title: "Rebuilt 100+ pages for app migration",
+    description:
+      "Led strangler-fig front-end migration which maintained 99.9% uptime while rebuilding every page from scratch.",
+  },
+  {
+    Icon: GitPullRequest,
+    title: "Implemented internal Agent Code-Reviews",
+    description:
+      "Connected LLM Agent reviewer within CI pipeline on incoming pull requests helping reduce code reviews by 2 days.",
+  },
+  {
+    Icon: Mails,
+    title: "AI Classification layer identifying 8% more paid opportunities",
+    description:
+      "Identified 8% more paid sponsorships for creator inboxes, routing collaboration offers into an AI Negotiator Agent.",
+  },
+];
 
 /**
- * The work on display. Image paths match the files in `public/` exactly, case
- * included — the local filesystem is case-insensitive but the deploy target is
- * not, so a casing slip is a 404 that only ever shows up in production.
- *
- * `summary` is one short line: the role and what the work was about. The copy
- * is always in the markup (only visually collapsed on inactive rows), so it is
- * present in the server-rendered HTML for crawlers.
+ * An asymmetric two-column feature row: a wide product screenshot on the
+ * left, a narrower, vertically centered text column on the right. Stacks on
+ * small screens.
  */
-const WORK = [
-  {
-    title: "Blitz",
-    kind: "Internship",
-    when: "Mar 2026 – Sep 2026",
-    summary:
-      "Software Engineer Intern rebuilding a payouts platform's front end.",
-    image: "/blitz/Blitz.webp",
-    href: "https://useblitz.co",
-  },
-  {
-    title: "Unlevered",
-    kind: "Internship",
-    when: "Jul 2024 – Jan 2025",
-    summary:
-      "Software Engineer Intern building AI summaries for financial filings.",
-    image: "/unlevered/Unlevered.webp",
-    video: "/unlevered/Unlevered%20Product%20Showcase.mp4",
-    hasAudio: true,
-  },
-  {
-    title: "Syllabus to Calendar",
-    kind: "Project",
-    when: "Personal project",
-    summary: "Turns college syllabus PDFs into Google Calendar events.",
-    image: "/syllabusToCalendar/Syllabus_To_Calendar.webp",
-    video: "/syllabusToCalendar/syllabus_to_calendar.mp4",
-    hasAudio: false,
-    href: "https://syllabustocalendar.com",
-  },
-] as const;
-
-/** Type scale shared with the hero so the two sections read as one voice. */
-const DISPLAY = "text-4xl sm:text-5xl md:text-6xl xl:text-7xl 2xl:text-8xl";
-
 export default function Work() {
-  const [active, setActive] = useState(0);
-  /**
-   * Index of the project whose video currently has sound on, or `null`. Sound
-   * is opt-in per visit: selecting anything else drops it back to `null`, so
-   * returning to the video never starts it playing out loud.
-   */
-  const [unmutedIndex, setUnmutedIndex] = useState<number | null>(null);
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  const trackRef = useRef<HTMLDivElement>(null);
-  /** The pin's trigger — `null` under reduced motion, where nothing is pinned. */
-  const triggerRef = useRef<ScrollTrigger | null>(null);
-  const prefersReducedMotion = usePrefersReducedMotion();
+  const textRef = useRef<HTMLDivElement>(null);
+  // Each icon plays its motion once, as it pops in, then holds the end pose.
+  const [nfcOn, setNfcOn] = useState(false);
+  const [badgeOn, setBadgeOn] = useState(false);
 
-  // Only the selected video plays; the 70 MB file is never fetched until it
-  // is first selected (`preload="none"`).
-  useEffect(() => {
-    videoRefs.current.forEach((video, index) => {
-      if (!video) return;
-      if (index === active && !prefersReducedMotion) {
-        video.play().catch(() => {});
-      } else {
-        video.pause();
-      }
-    });
-  }, [active, prefersReducedMotion]);
-
-  const select = useCallback((index: number) => {
-    setActive(index);
-    setUnmutedIndex((unmuted) => (unmuted === index ? unmuted : null));
-  }, []);
-
-  /**
-   * The section is a tall track with the stage pinned inside it, and scroll
-   * progress through the track picks the project: one flick can no longer
-   * carry a visitor past all three, and the page is still scrolled natively —
-   * nothing is snapped or intercepted.
-   *
-   * Under reduced motion there is no trigger at all. The track collapses to
-   * a single screen through CSS (`motion-reduce:` on the markup, so the
-   * server's HTML is already right) and selection is by hover and click.
-   */
   useGSAP(
     () => {
-      if (prefersReducedMotion) return;
-
-      const sync = (self: ScrollTrigger) =>
-        select(
-          Math.min(WORK.length - 1, Math.floor(self.progress * WORK.length)),
-        );
-
-      const trigger = ScrollTrigger.create({
-        trigger: trackRef.current,
-        start: "top top",
-        end: "bottom bottom",
-        onUpdate: sync,
-        onRefresh: sync,
-      });
-      triggerRef.current = trigger;
-
-      return () => {
-        trigger.kill();
-        triggerRef.current = null;
+      const media = gsap.matchMedia();
+      const switchOn: Record<string, () => void> = {
+        nfc: () => setNfcOn(true),
+        badge: () => setBadgeOn(true),
       };
+
+      media.add("(prefers-reduced-motion: reduce)", () => {
+        Object.values(switchOn).forEach((on) => on());
+      });
+
+      media.add("(prefers-reduced-motion: no-preference)", () => {
+        const tl = gsap.timeline({
+          scrollTrigger: {
+            trigger: textRef.current,
+            start: "top 80%",
+            once: true,
+          },
+        });
+        gsap.utils
+          .toArray<SVGSVGElement>(".work-icon", textRef.current)
+          .forEach((el, i) => {
+            tl.fromTo(
+              el,
+              { scale: 0, rotate: -18, opacity: 0 },
+              {
+                scale: 1,
+                rotate: 0,
+                opacity: 1,
+                duration: 0.55,
+                ease: "back.out(2.4)",
+              },
+              0.2 + i * 0.35,
+            );
+            const on = el.dataset.switchOn && switchOn[el.dataset.switchOn];
+            if (on) tl.call(on, [], 0.2 + i * 0.35 + 0.35);
+          });
+        return () => tl.scrollTrigger?.kill();
+      });
+
+      return () => media.revert();
     },
-    { scope: trackRef, dependencies: [prefersReducedMotion, select] },
+    { scope: textRef },
   );
 
-  /**
-   * Pinned, the scroll position is the only source of truth, so choosing a
-   * project scrolls to the middle of its stretch of the track. Unpinned
-   * (reduced motion) it simply selects.
-   */
-  const choose = (index: number) => {
-    const trigger = triggerRef.current;
-    if (!trigger) {
-      select(index);
-      return;
-    }
-    const target =
-      trigger.start +
-      ((index + 0.5) / WORK.length) * (trigger.end - trigger.start);
-    if (Math.abs(window.scrollY - target) < 1) return;
-    window.scrollTo({ top: target, behavior: "smooth" });
-  };
-
-  const current = WORK[active];
-  const href = "href" in current ? current.href : undefined;
-
   return (
-    <div ref={trackRef} className="h-[300dvh] motion-reduce:h-auto">
-      <div className="sticky top-0 h-dvh motion-reduce:static motion-reduce:h-auto">
-        <section
-          aria-label="Internships and projects"
-          className="relative flex h-full min-h-dvh flex-col border-y border-neutral-200 font-aeonik-regular"
-        >
-          <div className="grid flex-1 grid-cols-1 lg:grid-cols-[7fr_5fr]">
-            <h2 className="sr-only">Products I&apos;ve helped ship</h2>
-
-            {/* Index */}
-            <ol className="order-2 flex flex-col lg:order-1 lg:border-r lg:border-neutral-200">
-              {WORK.map((work, index) => {
-                const isActive = index === active;
-                return (
-                  <li
-                    key={work.title}
-                    className="flex-1 border-b border-neutral-200 last:border-b-0"
-                  >
-                    <button
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => choose(index)}
-                      onFocus={() => choose(index)}
-                      onMouseEnter={() => {
-                        // Pinned, hovering must not fight the scroll position.
-                        if (!triggerRef.current) select(index);
-                      }}
-                      className="group flex h-full w-full cursor-pointer flex-col justify-center gap-3 px-4 py-6 text-left outline-none focus-visible:bg-neutral-50 sm:px-8 lg:py-10"
-                    >
-                      <span className="flex items-baseline gap-4 sm:gap-6">
-                        <span
-                          className={`w-6 shrink-0 text-sm tabular-nums transition-colors duration-300 sm:w-8 sm:text-base ${
-                            isActive ? "text-neutral-900" : "text-neutral-400"
-                          }`}
-                        >
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span
-                          className={`${DISPLAY} tracking-tight transition-[color,transform] duration-500 ease-out motion-reduce:transition-none ${
-                            isActive
-                              ? "translate-x-2 text-neutral-900"
-                              : "text-neutral-300 group-hover:text-neutral-500"
-                          }`}
-                        >
-                          {work.title}
-                        </span>
-                        <span
-                          className={`ml-auto hidden shrink-0 text-sm transition-colors duration-300 sm:block sm:text-base ${
-                            isActive ? "text-neutral-900" : "text-neutral-400"
-                          }`}
-                        >
-                          {work.kind}
-                        </span>
-                      </span>
-
-                      <span
-                        className={`grid pl-10 transition-[grid-template-rows,opacity] duration-500 ease-out motion-reduce:transition-none sm:pl-14 ${
-                          isActive
-                            ? "grid-rows-[1fr] opacity-100"
-                            : "grid-rows-[0fr] opacity-0"
-                        }`}
-                      >
-                        <span className="overflow-hidden">
-                          <span className="block max-w-[32ch] pl-2 text-lg text-neutral-500 sm:text-xl xl:text-2xl">
-                            {work.summary}
-                          </span>
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-
-            {/* Stage */}
-            <div className="order-1 flex flex-col border-b border-neutral-200 lg:order-2 lg:border-b-0">
-              <div className="flex flex-1 items-center px-4 py-6 sm:px-8 lg:px-10 lg:py-10">
-                <div className="relative aspect-video w-full bg-neutral-100 outline outline-1 outline-neutral-300">
-                  <Tick className="-left-2 -top-2" />
-                  <Tick className="-right-2 -top-2" />
-                  <Tick className="-bottom-2 -left-2" />
-                  <Tick className="-bottom-2 -right-2" />
-
-                  {WORK.map((work, index) => {
-                    const isActive = index === active;
-                    const fade = `absolute inset-0 size-full object-cover transition-opacity duration-500 motion-reduce:transition-none ${
-                      isActive ? "opacity-100" : "opacity-0"
-                    }`;
-                    if (work.title === "Blitz") {
-                      return (
-                        <div
-                          key={work.title}
-                          className={fade}
-                          role="img"
-                          aria-label={`${work.title} dashboard`}
-                        >
-                          <BlitzShowcase active={isActive} />
-                        </div>
-                      );
-                    }
-                    return (
-                      <video
-                        key={work.title}
-                        ref={(el) => {
-                          videoRefs.current[index] = el;
-                        }}
-                        src={work.video}
-                        poster={work.image}
-                        className={fade}
-                        muted={unmutedIndex !== index}
-                        loop
-                        playsInline
-                        preload="none"
-                        aria-hidden={!isActive}
-                      />
-                    );
-                  })}
-
-                  {"video" in current && current.hasAudio ? (
-                    // The whole frame is the control: dimmed and marked while
-                    // muted, clear once it has sound. Clicking again mutes.
-                    <button
-                      type="button"
-                      aria-label={
-                        unmutedIndex === active ? "Mute video" : "Unmute video"
-                      }
-                      onClick={() =>
-                        setUnmutedIndex((unmuted) =>
-                          unmuted === active ? null : active,
-                        )
-                      }
-                      className={`absolute inset-0 flex cursor-pointer items-center justify-center outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white motion-reduce:transition-none ${
-                        unmutedIndex === active
-                          ? "bg-transparent"
-                          : "bg-black/40"
-                      }`}
-                    >
-                      <BsVolumeMuteFill
-                        aria-hidden
-                        className={`size-10 text-white transition-opacity duration-300 motion-reduce:transition-none ${
-                          unmutedIndex === active ? "opacity-0" : "opacity-100"
-                        }`}
-                      />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-4 border-t border-neutral-200 px-4 py-5 sm:px-8 lg:px-10">
-                <span className="text-sm text-neutral-500 sm:text-base">
-                  {current.when}
-                </span>
-                {href ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-center gap-1.5 text-base text-neutral-900 transition-[gap] duration-300 hover:gap-3"
-                  >
-                    <span className="underline decoration-neutral-300 underline-offset-4 group-hover:decoration-neutral-900">
-                      Visit website
-                    </span>
-                    <MdArrowOutward />
-                  </a>
-                ) : null}
-              </div>
-            </div>
+    <section className="w-full px-6 py-24 sm:px-12 lg:px-20 2xl:px-32">
+      <div className="grid items-center gap-12 md:grid-cols-[minmax(0,65fr)_minmax(0,35fr)] md:gap-x-20 lg:gap-x-28">
+        <div className="relative isolate overflow-hidden rounded-[clamp(24px,4.2vw,60px)] [corner-shape:squircle] bg-[#e9defb] p-8 sm:p-12 lg:p-16">
+          {/* Decorative animated backdrop; the screenshot floats above it. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 -z-10 blur-3xl"
+          >
+            <span className="absolute -left-[10%] -top-[10%] size-[65%] rounded-full bg-[#c9b3f5] motion-safe:animate-[showcase-drift-a_14s_ease-in-out_infinite]" />
+            <span className="absolute -bottom-[15%] -right-[10%] size-[70%] rounded-full bg-[#f0d9fb] motion-safe:animate-[showcase-drift-b_18s_ease-in-out_infinite]" />
+            <span className="absolute left-[30%] top-[35%] size-[45%] rounded-full bg-[#b9c4f7] motion-safe:animate-[showcase-drift-c_22s_ease-in-out_infinite]" />
           </div>
-        </section>
+          <div className="relative mx-auto w-full max-w-[88%]">
+            <Image
+              src={dashboard}
+              alt="Blitz dashboard interface"
+              sizes="(min-width: 768px) 65vw, 100vw"
+              className="h-auto w-full rounded-[clamp(12px,2.1vw,30px)] [corner-shape:squircle]"
+            />
+          </div>
+        </div>
+        <div ref={textRef} className="flex flex-col gap-4">
+          <h2 className="font-aeonik-regular text-[clamp(1.5rem,2vw,3rem)] leading-[1.2] tracking-tight">
+            <Image
+              src={blitzLogo}
+              alt=""
+              aria-hidden
+              className="mr-[0.2em] inline-block size-[1em] rounded-[22%] object-cover align-[-0.2em] mix-blend-multiply saturate-0"
+            />
+            <span className="text-neutral-500">Blitz </span>{" "}
+            <span className="text-neutral-400">
+              {" "}
+              is the payment platform{" "}
+              <CreditCard
+                size="1em"
+                color="#042f2e"
+                trigger="none"
+                hover={nfcOn}
+                data-switch-on="nfc"
+                className="work-icon inline-block align-[-0.2em]"
+              />{" "}
+              that helps 1099 contractors{" "}
+              <IdBadge
+                size="1em"
+                color="#4c0519"
+                trigger="none"
+                hover={badgeOn}
+                data-switch-on="badge"
+                className="work-icon inline-block align-[-0.2em]"
+              />{" "}
+              get paid faster.
+            </span>
+          </h2>
+          <p className="font-aeonik-regular text-[clamp(1rem,1.15vw,1.5rem)] leading-relaxed tracking-tight text-neutral-500">
+            Software Engineer Intern | Mar. 2026 - Sep. 2026
+          </p>
+        </div>
       </div>
-    </div>
+      <div className="mt-[7.5dvh] grid grid-cols-1 gap-x-12 gap-y-14 md:grid-cols-3">
+        {HIGHLIGHTS.map(({ Icon, title, description }) => (
+          <div key={title} className="flex flex-col gap-6">
+            <Icon size="2.5rem" color="#404040" trigger="none" aria-hidden />
+            <h3 className="font-aeonik-regular text-[clamp(1.5rem,2vw,2.25rem)] leading-[1.15] tracking-tight text-neutral-500">
+              {title}
+            </h3>
+            <p className="font-aeonik-regular text-[clamp(0.875rem,1.15vw,1.125rem)] leading-relaxed tracking-tight text-neutral-400">
+              {description}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -5,7 +5,9 @@ import gsap from "gsap";
 import { RetroComputer, ToyRobot } from "kubai-icons-react/duotone";
 import Image from "next/image";
 import { useRef, useState } from "react";
+import blitzLogo from "../../../public/blitz/blitz_logo.jpeg";
 import profileIcon from "../../../public/icon-192.png";
+import unleveredLogo from "../../../public/unlevered/unlevered_logo.jpeg";
 
 gsap.registerPlugin(useGSAP);
 
@@ -110,7 +112,7 @@ export default function Header() {
   return (
     <header
       ref={ref}
-      className="pt-[20dvh] pb-[10dvh] px-6 sm:px-12 lg:px-20 2xl:px-32 grid grid-cols-1 content-start items-center md:grid-cols-2 md:gap-x-12"
+      className="pt-[25dvh] px-6 sm:px-12 lg:px-20 2xl:px-32 grid grid-cols-1 content-start items-center md:grid-cols-2 md:gap-x-12"
     >
       <div className="@container">
         <h1 className="text-left font-aeonik-regular tracking-tighter flex flex-col">
@@ -163,18 +165,30 @@ export default function Header() {
       >
         <p
           id="previously-built-at"
-          className="text-[clamp(0.875rem,1.15vw,1.125rem)] tracking-tight text-neutral-400"
+          className="text-[clamp(0.875rem,1.15vw,1.125rem)] tracking-tight text-neutral-500"
         >
           Previously built at
         </p>
-        <ul className="mt-3 font-aeonik-regular text-[clamp(1.75rem,3.2vw,3rem)] leading-[1.15] text-neutral-500">
-          <li className="group flex flex-wrap items-baseline gap-x-[0.5em] transition-colors duration-200 hover:text-neutral-600 motion-reduce:transition-none">
+        <ul className="mt-4 font-aeonik-regular text-[clamp(1.75rem,3.2vw,3rem)] leading-[1.15] text-neutral-500">
+          <li className="group flex flex-wrap items-baseline gap-x-[0.5em] transition-colors duration-200 hover:text-neutral-700 motion-reduce:transition-none">
+            <Image
+              src={blitzLogo}
+              alt=""
+              aria-hidden
+              className="-mr-[0.25em] inline-block size-[0.9em] self-center rounded-[22%] object-cover mix-blend-multiply saturate-0 transition-[filter] duration-200 group-hover:saturate-100 motion-reduce:transition-none"
+            />{" "}
             Blitz{" "}
             <span className="text-[0.4em] tracking-normal text-neutral-300 transition-colors duration-200 group-hover:text-neutral-400 motion-reduce:transition-none">
               useblitz.co
             </span>
           </li>
-          <li className="group flex flex-wrap items-baseline gap-x-[0.5em] transition-colors duration-200 hover:text-neutral-600 motion-reduce:transition-none">
+          <li className="group flex flex-wrap items-baseline gap-x-[0.5em] transition-colors duration-200 hover:text-neutral-700 motion-reduce:transition-none">
+            <Image
+              src={unleveredLogo}
+              alt=""
+              aria-hidden
+              className="-mr-[0.25em] inline-block size-[0.9em] self-center rounded-[22%] object-cover mix-blend-multiply saturate-0 transition-[filter] duration-200 group-hover:saturate-100 motion-reduce:transition-none"
+            />{" "}
             Unlevered{" "}
             <span className="text-[0.4em] tracking-normal text-neutral-300 transition-colors duration-200 group-hover:text-neutral-400 motion-reduce:transition-none">
               unlevered.ai
