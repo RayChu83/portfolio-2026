@@ -2,26 +2,12 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { easedWhiteGradient } from "@/lib/edge-fade";
 import { cn } from "@/lib/utils";
 import { Message, MessageContent, MessageGroup } from "@/components/ui/message";
 import profileIcon from "../../../../public/icon-192.png";
 import StreamedText from "./StreamedText";
 import type { AskChat } from "./useAskChat";
-
-/** An ease-in-out white falloff, from the outer edge (1) to nothing, so the tint has no visible start or end. */
-const SCRIM_STOPS = [
-  [0, 0.85],
-  [19, 0.8],
-  [34, 0.68],
-  [47, 0.52],
-  [56, 0.4],
-  [65, 0.27],
-  [73, 0.17],
-  [80, 0.1],
-  [86, 0.05],
-  [91, 0.02],
-  [100, 0],
-];
 
 /** A white fade over the scroll area's top or bottom edge, so text is not cut off abruptly. */
 function EdgeFade({
@@ -32,9 +18,6 @@ function EdgeFade({
   visible: boolean;
 }) {
   const direction = edge === "top" ? "to bottom" : "to top";
-  const scrim = SCRIM_STOPS.map(
-    ([at, alpha]) => `rgba(255,255,255,${alpha}) ${at}%`,
-  ).join(", ");
 
   return (
     <div
@@ -44,7 +27,7 @@ function EdgeFade({
         edge === "top" ? "top-0" : "bottom-0",
         visible ? "opacity-100" : "opacity-0",
       )}
-      style={{ background: `linear-gradient(${direction}, ${scrim})` }}
+      style={{ background: easedWhiteGradient(direction) }}
     />
   );
 }
@@ -124,7 +107,7 @@ export default function ChatLog({
                   className={cn(
                     "whitespace-pre-wrap",
                     role === "user"
-                      ? "self-end max-w-[85%] rounded-2xl rounded-br-md bg-neutral-900 px-3.5 py-2 text-white"
+                      ? "self-end max-w-[85%] rounded-2xl rounded-br-md [corner-shape:squircle] bg-neutral-900 px-3.5 py-2 text-white"
                       : "text-neutral-800",
                     failed && "text-red-600",
                   )}

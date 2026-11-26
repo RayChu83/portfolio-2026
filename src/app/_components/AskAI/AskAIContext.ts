@@ -4,12 +4,12 @@ import { createContext, useContext } from "react";
 
 export type AskAIContextValue = {
   open: boolean;
-  openWith: (text?: string) => void;
+  openAskAI: () => void;
 };
 
 export const AskAIContext = createContext<AskAIContextValue>({
   open: false,
-  openWith: () => {},
+  openAskAI: () => {},
 });
 
 export const useAskAI = () => useContext(AskAIContext);

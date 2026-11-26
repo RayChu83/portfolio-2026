@@ -6,6 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { GraduationCap, ChartBar } from "kubai-icons-react/duotone";
 import { Layers, Globe, Database } from "kubai-icons-react/line";
 import Image from "next/image";
+import { BsVolumeMuteFill } from "react-icons/bs";
 import { useRef, useState } from "react";
 import unleveredLogo from "../../../public/unlevered/unlevered_logo.jpeg";
 
@@ -22,7 +23,7 @@ const HIGHLIGHTS = [
     Icon: Layers,
     title: "AI Prompt chunking for financial filing summaries",
     description:
-      "Chunked SEC filings by their sections, decreasing load by 60% and reducing context window usage by 70%.",
+      "Chunked SEC filings by their sections, decreasing summarizing time 60% and reducing context window usage by 70%.",
   },
   {
     Icon: Globe,
@@ -50,6 +51,8 @@ export default function Unlevered() {
   // Each icon plays its motion once, as it pops in, then holds the end pose.
   const [nfcOn, setNfcOn] = useState(false);
   const [badgeOn, setBadgeOn] = useState(false);
+  // Starts muted so autoplay is allowed; a click on the video unmutes it.
+  const [muted, setMuted] = useState(true);
 
   useGSAP(
     () => {
@@ -100,16 +103,33 @@ export default function Unlevered() {
   return (
     <section className="w-full px-6 py-24 sm:px-12 lg:px-20 2xl:px-32">
       <div className="grid items-center gap-12 md:grid-cols-[minmax(0,35fr)_minmax(0,65fr)] md:gap-x-20 lg:gap-x-28">
-        <video
-          src="/unlevered/Unlevered%20Product%20Showcase.mp4"
-          aria-label="Unlevered product showcase"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          className="h-auto w-full rounded-[clamp(24px,4.2vw,60px)] [corner-shape:squircle] object-cover shadow-[0_10px_40px_-8px_rgba(0,0,0,0.10)] md:order-2"
-        />
+        <div className="relative overflow-hidden rounded-[clamp(24px,4.2vw,60px)] [corner-shape:squircle] shadow-[0_10px_40px_-8px_rgba(0,0,0,0.10)] md:order-2">
+          <video
+            src="/unlevered/Unlevered%20Product%20Showcase.mp4"
+            autoPlay
+            muted={muted}
+            loop
+            playsInline
+            preload="metadata"
+            className="block h-auto w-full object-cover"
+          />
+          {/* Covers the video; muted, it also darkens it and shows the icon. */}
+          <button
+            type="button"
+            onClick={() => setMuted((wasMuted) => !wasMuted)}
+            aria-label={
+              muted ? "Unmute product showcase" : "Mute product showcase"
+            }
+            className={`absolute inset-0 grid cursor-pointer place-items-center bg-black/50 text-white transition-opacity duration-300 motion-reduce:transition-none ${
+              muted ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <BsVolumeMuteFill
+              className="size-[clamp(2.5rem,5vw,4.5rem)]"
+              aria-hidden
+            />
+          </button>
+        </div>
         <div ref={textRef} className="flex flex-col gap-4 md:order-1">
           <h2 className="font-aeonik-regular text-[clamp(1.5rem,2vw,3rem)] leading-[1.2] tracking-tight">
             <Image

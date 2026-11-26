@@ -19,7 +19,6 @@ import { useAskChat, type AskChat } from "./useAskChat";
 
 type Props = {
   open: boolean;
-  prefill: { text: string; nonce: number };
   onClose: () => void;
 };
 
@@ -40,7 +39,7 @@ export default function AskAIPanel(props: Props) {
 
 type PanelProps = Props & { chat: AskChat };
 
-function SidePanel({ open, prefill, onClose, chat }: PanelProps) {
+function SidePanel({ open, onClose, chat }: PanelProps) {
   const returnFocusRef = useRef<HTMLElement | null>(null);
   useScrollLock(open);
   const [dragX, setDragX] = useState<number | null>(null);
@@ -88,7 +87,7 @@ function SidePanel({ open, prefill, onClose, chat }: PanelProps) {
         aria-hidden
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-99 bg-black/40 backdrop-blur-sm transition-opacity duration-400 motion-reduce:transition-none",
+          "fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-400 motion-reduce:transition-none",
           dragX !== null && "transition-none",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
@@ -98,7 +97,6 @@ function SidePanel({ open, prefill, onClose, chat }: PanelProps) {
       />
       <aside
         id="ask-ai-panel"
-        data-ask-ai-panel
         aria-label="Ask AI"
         inert={!open}
         aria-hidden={!open}
@@ -106,7 +104,7 @@ function SidePanel({ open, prefill, onClose, chat }: PanelProps) {
           dragX !== null ? { transform: `translateX(${dragX}px)` } : undefined
         }
         className={cn(
-          "fixed inset-y-5 right-5 z-100 flex w-[400px] max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[28px] [corner-shape:squircle] border border-border bg-white shadow-[0_12px_48px_-12px_rgba(0,0,0,0.12)] transition-transform duration-400 ease-[cubic-bezier(0.76,0,0.24,1)] motion-reduce:transition-none",
+          "fixed inset-y-5 right-5 z-50 flex w-[400px] max-w-[calc(100%-2.5rem)] flex-col overflow-hidden rounded-[28px] [corner-shape:squircle] border border-border bg-white shadow-[0_12px_48px_-12px_rgba(0,0,0,0.12)] transition-transform duration-400 ease-[cubic-bezier(0.76,0,0.24,1)] motion-reduce:transition-none",
           dragX !== null && "transition-none",
           open
             ? "translate-x-0"
@@ -125,13 +123,7 @@ function SidePanel({ open, prefill, onClose, chat }: PanelProps) {
         />
         <ChatLog messages={chat.messages} pending={chat.pending} />
         <Suggestions chat={chat} />
-        {/* Remounted per prefill so a new selection replaces the draft without an effect syncing state. */}
-        <Composer
-          key={prefill.nonce}
-          initialValue={prefill.text}
-          chat={chat}
-          focusOnOpen={open}
-        />
+        <Composer chat={chat} focusOnOpen={open} />
       </aside>
     </>
   );
@@ -142,7 +134,7 @@ function SidePanel({ open, prefill, onClose, chat }: PanelProps) {
  * input is not focused on open, since that would raise the keyboard over a
  * drawer the user has not yet read.
  */
-function BottomDrawer({ open, prefill, onClose, chat }: PanelProps) {
+function BottomDrawer({ open, onClose, chat }: PanelProps) {
   return (
     <Drawer
       open={open}
@@ -153,15 +145,13 @@ function BottomDrawer({ open, prefill, onClose, chat }: PanelProps) {
     >
       <DrawerContent
         id="ask-ai-panel"
-        data-ask-ai-panel
         aria-label="Ask AI"
-        className="z-100 mx-auto w-[min(48rem,calc(100%-2.5rem))] rounded-[28px] [corner-shape:squircle] shadow-[0_12px_48px_-12px_rgba(0,0,0,0.12)] [--drawer-content-height:85dvh] [--drawer-content-max-height:calc(100dvh-2.5rem)] [--drawer-inset:1.25rem]"
+        className="mx-auto w-[min(48rem,calc(100%-2.5rem))] rounded-[28px] [corner-shape:squircle] shadow-[0_12px_48px_-12px_rgba(0,0,0,0.12)] [--drawer-content-height:85dvh] [--drawer-content-max-height:calc(100dvh-2.5rem)] [--drawer-inset:1.25rem]"
       >
         <DrawerTitle className="sr-only">Ask me anything</DrawerTitle>
         <ChatLog messages={chat.messages} pending={chat.pending} />
         <Suggestions chat={chat} />
-        {/* Remounted per prefill so a new selection replaces the draft without an effect syncing state. */}
-        <Composer key={prefill.nonce} initialValue={prefill.text} chat={chat} />
+        <Composer chat={chat} />
       </DrawerContent>
     </Drawer>
   );
@@ -193,15 +183,13 @@ function Suggestions({ chat }: { chat: AskChat }) {
 }
 
 function Composer({
-  initialValue,
   chat,
   focusOnOpen = false,
 }: {
-  initialValue: string;
   chat: AskChat;
   focusOnOpen?: boolean;
 }) {
-  const [value, setValue] = useState(initialValue);
+  const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {

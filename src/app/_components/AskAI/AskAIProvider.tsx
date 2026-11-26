@@ -3,9 +3,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { AskAIContext } from "./AskAIContext";
 import AskAIPanel from "./AskAIPanel";
-import SelectionAskButton from "./SelectionAskButton";
-
-type Prefill = { text: string; nonce: number };
 
 /**
  * Owns whether the drawer is open and renders it. The page content goes in as
@@ -14,22 +11,17 @@ type Prefill = { text: string; nonce: number };
  */
 export default function AskAIProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [prefill, setPrefill] = useState<Prefill>({ text: "", nonce: 0 });
 
-  const openWith = useCallback((text = "") => {
-    setPrefill((previous) => ({ text, nonce: previous.nonce + 1 }));
-    setOpen(true);
-  }, []);
+  const openAskAI = useCallback(() => setOpen(true), []);
 
   const close = useCallback(() => setOpen(false), []);
 
-  const value = useMemo(() => ({ open, openWith }), [open, openWith]);
+  const value = useMemo(() => ({ open, openAskAI }), [open, openAskAI]);
 
   return (
     <AskAIContext value={value}>
       {children}
-      <AskAIPanel open={open} prefill={prefill} onClose={close} />
-      <SelectionAskButton />
+      <AskAIPanel open={open} onClose={close} />
     </AskAIContext>
   );
 }
