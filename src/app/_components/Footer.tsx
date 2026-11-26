@@ -450,6 +450,7 @@ export default function Footer() {
 
           <BackToTop />
         </div>
+        <div aria-hidden className="footer-grain" />
       </footer>
     </>
   );

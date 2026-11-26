@@ -21,17 +21,22 @@ export default function SelectionAskButton() {
     const update = () => {
       const selection = window.getSelection();
       const text = selection?.toString().trim() ?? "";
-      if (!selection || selection.rangeCount === 0 || !text) return setAnchor(null);
+      if (!selection || selection.rangeCount === 0 || !text)
+        return setAnchor(null);
 
       const node = selection.anchorNode;
       const element = node instanceof Element ? node : node?.parentElement;
-      if (element?.closest("[data-ask-ai-panel], [data-ask-ai-ignore]")) return setAnchor(null);
+      if (element?.closest("[data-ask-ai-panel], [data-ask-ai-ignore]"))
+        return setAnchor(null);
 
       const rect = selection.getRangeAt(0).getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return setAnchor(null);
       const below = rect.top < 56;
       setAnchor({
-        x: Math.min(Math.max(rect.left + rect.width / 2, 48), window.innerWidth - 48),
+        x: Math.min(
+          Math.max(rect.left + rect.width / 2, 48),
+          window.innerWidth - 48,
+        ),
         y: below ? rect.bottom + 8 : rect.top - 8,
         below,
         text: text.slice(0, MAX_CHARS),

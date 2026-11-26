@@ -108,7 +108,7 @@ export default function Unlevered() {
           loop
           playsInline
           preload="metadata"
-          className="h-auto w-full rounded-[clamp(24px,4.2vw,60px)] [corner-shape:squircle] object-cover md:order-2"
+          className="h-auto w-full rounded-[clamp(24px,4.2vw,60px)] [corner-shape:squircle] object-cover shadow-[0_10px_40px_-8px_rgba(0,0,0,0.10)] md:order-2"
         />
         <div ref={textRef} className="flex flex-col gap-4 md:order-1">
           <h2 className="font-aeonik-regular text-[clamp(1.5rem,2vw,3rem)] leading-[1.2] tracking-tight">

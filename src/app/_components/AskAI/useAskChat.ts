@@ -51,7 +51,7 @@ async function ask(
   return { answer: body.answer, smallTalk: body.smallTalk };
 }
 
-/** Owns the conversation. Lives above the side panel and the drawer so resizing across `lg` keeps it. */
+/** Owns the conversation. Lives above the drawer so closing it keeps the chat. */
 export function useAskChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState(false);

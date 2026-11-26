@@ -108,7 +108,7 @@ export default function Blitz() {
               src={dashboard}
               alt="Blitz dashboard interface"
               sizes="(min-width: 768px) 65vw, 100vw"
-              className="h-auto w-full rounded-[clamp(12px,2.1vw,30px)] [corner-shape:squircle]"
+              className="h-auto w-full rounded-[clamp(12px,2.1vw,30px)] [corner-shape:squircle] shadow-[0_10px_40px_-8px_rgba(0,0,0,0.10)]"
             />
           </div>
         </div>
