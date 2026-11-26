@@ -32,6 +32,14 @@ const HIGHLIGHTS = [
   },
 ];
 
+const TESTIMONIAL = {
+  quote:
+    "Ray brought a collaborative and proactive approach to our team. He was always eager to learn, open to feedback, and quick to share ideas that enhanced our project outcomes. His ability to balance innovation with practical implementation was invaluable, particularly in the fast-paced environment we were working in.",
+  name: "Swapnil Patil",
+  role: "Software Developer",
+  src: "/unlevered/swapnil_patil.jpeg",
+};
+
 /**
  * An asymmetric two-column feature row: a narrower, vertically centered text
  * column on the left, a wide product video on the right. Stacks on
@@ -153,6 +161,44 @@ export default function Unlevered() {
           </div>
         ))}
       </div>
+      <figure className="mt-[12dvh] grid items-end gap-12 rounded-[clamp(24px,4.2vw,60px)] [corner-shape:squircle] bg-neutral-100 p-8 sm:p-12 md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-20 lg:p-20">
+        <div className="flex flex-col gap-8">
+          <span
+            aria-hidden
+            className="font-aeonik-regular text-[clamp(4rem,7vw,8rem)] font-bold leading-[0.6] text-neutral-900"
+          >
+            &ldquo;
+          </span>
+          <blockquote className="max-w-4xl font-aeonik-regular text-[clamp(1.25rem,2.4vw,2.75rem)] leading-[1.15] tracking-tight text-neutral-900">
+            {TESTIMONIAL.quote}
+          </blockquote>
+        </div>
+        <figcaption className="flex items-center gap-3 sm:gap-4">
+          <div className="relative">
+            <Image
+              src={TESTIMONIAL.src}
+              alt={TESTIMONIAL.name}
+              width={56}
+              height={56}
+              className="size-10 rounded-full object-cover sm:size-12 md:size-14"
+            />
+            <Image
+              src={unleveredLogo}
+              alt=""
+              aria-hidden
+              className="absolute -bottom-1 -right-1 size-4 rounded-[5px] object-cover ring-2 ring-neutral-100 sm:size-[1.125rem] md:size-5 md:rounded-md"
+            />
+          </div>
+          <div className="flex flex-col font-aeonik-regular tracking-tight">
+            <span className="text-sm text-neutral-900 sm:text-base">
+              {TESTIMONIAL.name}
+            </span>
+            <span className="text-sm text-neutral-500 sm:text-base">
+              {TESTIMONIAL.role}
+            </span>
+          </div>
+        </figcaption>
+      </figure>
     </section>
   );
 }
