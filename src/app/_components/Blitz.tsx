@@ -150,7 +150,7 @@ export default function Blitz() {
                 data-switch-on="badge"
                 className="work-icon inline-block align-[-0.2em]"
               />{" "}
-              instead of chasing invoices.
+              without chasing invoices.
             </span>
           </h2>
           <p className="font-aeonik-regular text-[clamp(1rem,1.15vw,1.5rem)] leading-relaxed tracking-tight text-neutral-500">
