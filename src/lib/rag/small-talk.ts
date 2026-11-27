@@ -46,9 +46,7 @@ async function isSmallTalk(
 
 /**
  * Returns a reply when the whole message is small talk, otherwise null so the caller runs RAG.
- * The reply model refuses when the gate let through a message that asks for more, and that refusal also reads as null.
- * Only the gate sees the previous answer, so a follow-up like "wow, really?" routes to RAG.
- * The reply model sees only the message: no history and no retrieved chunks, so it has no facts to leak.
+ * A reply-model refusal also reads as null. The reply model sees only the message, so it has no facts to leak.
  */
 export async function replyIfSmallTalk(
   message: string,

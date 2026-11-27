@@ -12,12 +12,9 @@ export type ChunkMetadata = {
 };
 
 /**
- * Floor for a retrieved chunk to count as relevant. Upstash reports cosine on a 0-1 scale,
- * so unrelated text still scores ~0.5. Calibrated on the 8-vector corpus: in-scope questions
- * topped out at >=0.62, off-topic ones at <=0.59. Recalibrate when the corpus grows.
- *
- * Cost pre-filter only, not a scope boundary: on-topic and off-topic scores sit ~0.03 apart,
- * so scope is enforced by the system prompt.
+ * Cost pre-filter, not a scope boundary (the system prompt enforces scope). Unrelated text
+ * still scores ~0.5; on the 8-vector corpus in-scope topped out at >=0.62, off-topic at <=0.59.
+ * Recalibrate when the corpus grows.
  */
 export const MIN_SCORE = 0.6;
 export const TOP_K = 5;
@@ -26,7 +23,10 @@ export const TOP_K = 5;
 export const MAX_QUESTION_LENGTH = 500;
 
 /** Returned verbatim for no retrieval match and for any refused request, so a refusal is machine-checkable. */
-export const REFUSAL_MESSAGE = "I'm not sure about that. Try asking a different question.";
+export const REFUSAL_MESSAGE =
+  "I'm not sure about that. Try asking a different question.";
+export const MISSING_MESSAGE =
+  "Sorry, I couldn't find what you're looking for. Try asking a different question.";
 
 /** One earlier question and its answer. Sent by the client, so the server treats it as untrusted. */
 export type Exchange = { question: string; answer: string };
