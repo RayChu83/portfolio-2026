@@ -14,6 +14,24 @@ const NAV = [
   { href: RESUME_PATH, label: "Resume" },
 ] as const;
 
+/** The aurora behind the Ask AI pill. */
+const AURORA =
+  "linear-gradient(90deg, rgb(0,90,200) 0%, rgb(90,60,220) 35%, rgb(200,100,20) 70%, rgb(170,20,190) 100%)";
+
+const NAV_CLASS =
+  "pointer-events-none fixed inset-x-0 top-0 z-40 flex flex-wrap items-center gap-x-5 gap-y-1 px-6 pt-5 font-aeonik-regular text-sm text-neutral-500 sm:px-12 lg:justify-center lg:gap-x-6";
+const ITEM_CLASS =
+  "pointer-events-auto cursor-pointer whitespace-nowrap transition-colors hover:text-neutral-400 focus-visible:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current motion-reduce:transition-none";
+
+/** Takes the item's place in layout without being seen or reached. */
+function Placeholder({ label }: { label: string }) {
+  return (
+    <span aria-hidden="true" className="invisible whitespace-nowrap">
+      {label}
+    </span>
+  );
+}
+
 /**
  * The floating nav, pinned to the top of the viewport for the whole scroll:
  * centered at `lg` and up, left-aligned with the page's own side padding
@@ -28,6 +46,10 @@ const NAV = [
  * subtraction. Blending needs a shared stacking context with what it blends
  * against, so this is rendered as a sibling of the page's sections — see
  * `page.tsx`.
+ *
+ * The blend would invert the Ask AI aurora, so that button lives in a second,
+ * unblended nav with the same layout; each nav holds the other's items as
+ * invisible placeholders so every item lands in the same spot in both.
  */
 export default function SocialLinks() {
   const { openAskAI } = useAskAI();
@@ -45,35 +67,42 @@ export default function SocialLinks() {
 
       {/* The wrapper spans the viewport but ignores the pointer, so only the
           links themselves take clicks. */}
-      <nav
-        aria-label="Primary"
-        className="pointer-events-none fixed inset-x-0 top-0 z-40 flex flex-wrap items-center gap-x-5 gap-y-1 px-6 pt-5 font-aeonik-regular text-sm text-neutral-500 mix-blend-difference sm:px-12 lg:justify-center lg:gap-x-6"
-      >
-        {NAV.map((item) => {
-          const className =
-            "pointer-events-auto cursor-pointer whitespace-nowrap transition-colors hover:text-white focus-visible:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current motion-reduce:transition-none";
-          return "href" in item ? (
+      <nav aria-label="Primary" className={`${NAV_CLASS} mix-blend-difference`}>
+        {NAV.map((item) =>
+          "href" in item ? (
             <Link
               key={item.label}
               href={item.href}
               target={item.href.startsWith("mailto:") ? undefined : "_blank"}
               rel="noopener noreferrer"
-              className={className}
+              className={ITEM_CLASS}
             >
               {item.label}
             </Link>
+          ) : (
+            <Placeholder key={item.label} label={item.label} />
+          ),
+        )}
+      </nav>
+
+      {/* Unblended, so the aurora keeps its own colors on any ground. */}
+      <div className={NAV_CLASS}>
+        {NAV.map((item) =>
+          "href" in item ? (
+            <Placeholder key={item.label} label={item.label} />
           ) : (
             <button
               key={item.label}
               type="button"
               onClick={openAskAI}
-              className={`${className} text-neutral-300`}
+              className="pointer-events-auto cursor-pointer whitespace-nowrap bg-clip-text text-transparent focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current"
+              style={{ backgroundImage: AURORA }}
             >
               {item.label}
             </button>
-          );
-        })}
-      </nav>
+          ),
+        )}
+      </div>
     </>
   );
 }

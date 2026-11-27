@@ -233,7 +233,7 @@ function Composer({
       onSubmit={onSubmit}
       className="shrink-0 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
     >
-      <div className="relative rounded-[24px] [corner-shape:squircle] bg-neutral-200 shadow-[0_4px_24px_-6px_rgba(0,0,0,0.08)] transition-colors duration-200 focus-within:bg-neutral-300/70 hover:bg-neutral-300/70 motion-reduce:transition-none">
+      <div className="relative rounded-[24px] [corner-shape:squircle] bg-neutral-200/75 shadow-[0_4px_24px_-6px_rgba(0,0,0,0.08)] transition-colors duration-200 focus-within:bg-neutral-200 hover:bg-neutral-200 motion-reduce:transition-none">
         <textarea
           ref={ref}
           value={value}

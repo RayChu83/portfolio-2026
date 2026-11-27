@@ -13,7 +13,6 @@ export default function AskAIProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
 
   const openAskAI = useCallback(() => setOpen(true), []);
-
   const close = useCallback(() => setOpen(false), []);
 
   const value = useMemo(() => ({ open, openAskAI }), [open, openAskAI]);
