@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import PageTransition from "./_components/PageTransition";
 import StructuredData from "./_components/StructuredData";
+import AskAIProvider from "./_components/AskAI/AskAIProvider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -123,7 +124,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             does not have. It renders no visible box and ships no JavaScript —
             the type is `application/ld+json`, which no browser executes. */}
         <StructuredData />
-        <PageTransition>{children}</PageTransition>
+        <AskAIProvider>
+          <PageTransition>{children}</PageTransition>
+        </AskAIProvider>
       </body>
     </html>
   );

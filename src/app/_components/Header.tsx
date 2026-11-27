@@ -2,49 +2,43 @@
 
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { RetroComputer, ToyRobot } from "kubai-icons-react/duotone";
 import Image from "next/image";
-import { useRef } from "react";
-import designerIcon from "../../../public/designer.png";
+import { useRef, useState } from "react";
+import blitzLogo from "../../../public/blitz/blitz_logo.jpeg";
 import profileIcon from "../../../public/icon-192.png";
-import softwareEngineerIcon from "../../../public/softwareEngineer.png";
+import unleveredLogo from "../../../public/unlevered/unlevered_logo.jpeg";
 
-gsap.registerPlugin(useGSAP, ScrollTrigger);
-
-/** How small the greeting gets once the shrink has run its course. */
-const MIN_SCALE = 0.6;
+gsap.registerPlugin(useGSAP);
 
 /**
  * The page's greeting, which cascades in line by line on load — each line
  * rising into focus with a short stagger, the icons popping in as a separate
- * accent beat, the location line closing things out with its underline — and
- * shrinks as the visitor scrolls away from it.
- *
- * The entrance and the shrink live on the same element and the same GSAP
- * scope, but are otherwise unrelated: the entrance plays once, immediately,
- * outside any ScrollTrigger, while the shrink is scrubbed to scroll position
- * and works purely through `transform`.
- *
- * The shrink is a transform, not a font-size change: it leaves the header's
- * layout box exactly where the document flow put it, so nothing below shifts
- * as the text scales, and the whole thing stays on the compositor. It also
- * scales the two type sizes together, which keeping a pair of `font-size`
- * ramps in step would not.
- *
- * Driven by GSAP's ScrollTrigger rather than `motion`'s `useScroll`, so the
- * page runs one scroll-observation system instead of two — this scale and the
- * description crossfade were the only two things `motion` shipped for.
+ * accent beat, the location line closing things out with its underline. It
+ * plays once and then stays put; scrolling doesn't animate it.
  */
 export default function Header() {
   const ref = useRef<HTMLElement>(null);
-  const scaledRef = useRef<HTMLDivElement>(null);
+  // The Kubai icons play their motion (the computer switching on, the
+  // sparkles turning) once, as they land, and then hold the end pose. They
+  // run with `trigger="none"`, so nothing ever plays it back or replays it.
+  const [computerOn, setComputerOn] = useState(false);
+  const [sparklesOn, setSparklesOn] = useState(false);
 
   useGSAP(
     () => {
       const media = gsap.matchMedia();
+      const switchOn: Record<string, () => void> = {
+        computer: () => setComputerOn(true),
+        sparkles: () => setSparklesOn(true),
+      };
 
-      // Reduced motion keeps the greeting at full size — the shrink is
-      // decoration, not content.
+      // No entrance under reduced motion, so show the end pose right away.
+      // The Kubai runtime also respects the setting and jumps straight there.
+      media.add("(prefers-reduced-motion: reduce)", () => {
+        Object.values(switchOn).forEach((on) => on());
+      });
+
       media.add("(prefers-reduced-motion: no-preference)", () => {
         // The load-in: every word and icon cascades in as its own beat, in
         // document order, instead of three big line-groups revealing
@@ -58,7 +52,7 @@ export default function Header() {
         // never cut off at a box edge either.
         const entrance = gsap.timeline({ defaults: { ease: "power3.out" } });
         const pieces = Array.from(
-          ref.current?.querySelectorAll<HTMLElement>(
+          ref.current?.querySelectorAll<HTMLElement | SVGSVGElement>(
             ".hero-word, .hero-icon",
           ) ?? [],
         );
@@ -78,6 +72,10 @@ export default function Header() {
               },
               i * WORD_STAGGER,
             );
+            // Start the icon's own motion once the pop is mostly done, so
+            // the two read as one beat instead of fighting over the frame.
+            const on = el.dataset.switchOn && switchOn[el.dataset.switchOn];
+            if (on) entrance.call(on, [], i * WORD_STAGGER + 0.35);
           } else {
             entrance.fromTo(
               el,
@@ -103,35 +101,7 @@ export default function Header() {
             "-=0.2",
           );
 
-        // Scrubbed over exactly the scroll it takes for the header to travel
-        // up and out of the viewport, so the ramp tracks the type's own size
-        // at every breakpoint instead of a number tuned for one of them.
-        // `ease: "none"` because under a scrub the wheel is the easing.
-        const tween = gsap.fromTo(
-          scaledRef.current,
-          { scale: 1 },
-          {
-            scale: MIN_SCALE,
-            ease: "none",
-            scrollTrigger: {
-              // The measured element and the scaled one have to be different
-              // boxes: a scroll range read off an element that the same range
-              // is busy shrinking feeds its own output back into its input.
-              // The <header> keeps its layout box — and so a fixed scroll
-              // range — while the child does the moving.
-              trigger: ref.current,
-              start: "top top",
-              end: "bottom top",
-              scrub: true,
-            },
-          },
-        );
-
-        return () => {
-          tween.scrollTrigger?.kill();
-          tween.kill();
-          entrance.kill();
-        };
+        return () => entrance.kill();
       });
 
       return () => media.revert();
@@ -142,49 +112,90 @@ export default function Header() {
   return (
     <header
       ref={ref}
-      className="h-dvh py-24 px-4 flex flex-col items-center justify-center"
+      className="pt-[25dvh] px-6 sm:px-12 lg:px-20 2xl:px-32 grid grid-cols-1 content-start items-center md:grid-cols-2 md:gap-x-12"
     >
-      <div ref={scaledRef} className="origin-center">
-        <h1 className="text-center font-aeonik-regular tracking-tighter flex flex-col gap-4 mb-12">
-          <span className="text-neutral-900 text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
-            <span className="hero-word inline-block">Hey,</span>{" "}
-            <span className="hero-word inline-block">I&apos;m</span>{" "}
+      <div className="@container">
+        <h1 className="text-left font-aeonik-regular tracking-tighter flex flex-col">
+          <span className="text-neutral-900 whitespace-nowrap leading-[1.2] text-[clamp(1.25rem,9.5cqw,3.5rem)] md:text-[clamp(1.25rem,9.5cqw,5rem)]">
+            <span className="hero-word inline-block">Ray</span>{" "}
+            <span className="hero-word inline-block">Chu</span>{" "}
             <Image
               src={profileIcon}
               alt=""
               aria-hidden
-              className="hero-icon inline-block size-[1em] rounded-full object-cover align-[-0.2em] mx-[0.05em]"
+              className="hero-icon inline-block size-[1em] rounded-[32%] [corner-shape:squircle] object-cover align-[-0.2em] mx-[0.05em]"
             />{" "}
-            <span className="hero-word inline-block">Ray.</span>
+            <span className="hero-word inline-block">is</span>{" "}
+            <span className="hero-word inline-block">a</span>{" "}
           </span>{" "}
-          <span className="text-neutral-900 text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
+          <span className="text-neutral-900 whitespace-nowrap leading-[1.2] text-[clamp(1.25rem,9.5cqw,3.5rem)] md:text-[clamp(1.25rem,9.5cqw,5rem)]">
             <span className="hero-word inline-block">Software</span>{" "}
-            <span className="hero-word inline-block">Engineer</span>{" "}
-            <Image
-              src={softwareEngineerIcon}
-              alt=""
-              aria-hidden
-              className="hero-icon inline-block size-[1em] rounded-2xl object-contain align-[-0.2em] mx-[0.05em]"
-            />
+            <span className="whitespace-nowrap">
+              <span className="hero-word inline-block">Engineer</span>{" "}
+              <RetroComputer
+                size="1em"
+                color="#052e16"
+                trigger="none"
+                hover={computerOn}
+                data-switch-on="computer"
+                className="hero-icon inline-block align-[-0.2em]"
+              />
+            </span>
           </span>{" "}
-          <span className="text-neutral-900 text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl 2xl:text-8xl">
-            <span className="hero-word inline-block">who</span>{" "}
-            <span className="hero-word inline-block">Designs</span>{" "}
-            <Image
-              src={designerIcon}
-              alt=""
-              aria-hidden
-              className="hero-icon inline-block size-[1em] rounded-2xl object-contain align-[-0.2em] mx-[0.05em]"
-            />
+          <span className="text-neutral-900 whitespace-nowrap leading-[1.2] text-[clamp(1.25rem,9.5cqw,3.5rem)] md:text-[clamp(1.25rem,9.5cqw,5rem)]">
+            <span className="hero-word inline-block">Building</span>{" "}
+            <span className="hero-word inline-block">with</span>{" "}
+            <span className="whitespace-nowrap">
+              <span className="hero-word inline-block">AI</span>{" "}
+              <ToyRobot
+                size="1em"
+                color="#1e1b4b"
+                trigger="none"
+                hover={sparklesOn}
+                data-switch-on="sparkles"
+                className="hero-icon inline-block align-[-0.2em]"
+              />
+            </span>
           </span>
         </h1>
-        <p className="hero-sub text-center text-lg sm:text-xl md:text-2xl text-neutral-900">
-          <span>From</span>{" "}
-          <span className="hero-underline underline underline-offset-4 decoration-1">
-            New York City
-          </span>
-        </p>
       </div>
+      <section
+        aria-labelledby="previously-built-at"
+        className="hero-sub mt-12 md:mt-0"
+      >
+        <p
+          id="previously-built-at"
+          className="text-[clamp(0.875rem,1.15vw,1.125rem)] tracking-tight text-neutral-500"
+        >
+          Previously built at
+        </p>
+        <ul className="mt-4 font-aeonik-regular text-[clamp(1.75rem,3.2vw,3rem)] leading-[1.15] text-neutral-500">
+          <li className="group flex flex-wrap items-baseline gap-x-[0.5em] transition-colors duration-200 hover:text-neutral-700 motion-reduce:transition-none">
+            <Image
+              src={blitzLogo}
+              alt=""
+              aria-hidden
+              className="-mr-[0.25em] inline-block size-[0.9em] self-center rounded-[22%] object-cover mix-blend-multiply saturate-0 transition-[filter] duration-200 group-hover:saturate-100 motion-reduce:transition-none"
+            />{" "}
+            Blitz{" "}
+            <span className="text-[0.4em] tracking-normal text-neutral-300 transition-colors duration-200 group-hover:text-neutral-400 motion-reduce:transition-none">
+              useblitz.co
+            </span>
+          </li>
+          <li className="group flex flex-wrap items-baseline gap-x-[0.5em] transition-colors duration-200 hover:text-neutral-700 motion-reduce:transition-none">
+            <Image
+              src={unleveredLogo}
+              alt=""
+              aria-hidden
+              className="-mr-[0.25em] inline-block size-[0.9em] self-center rounded-[22%] object-cover mix-blend-multiply saturate-0 transition-[filter] duration-200 group-hover:saturate-100 motion-reduce:transition-none"
+            />{" "}
+            Unlevered{" "}
+            <span className="text-[0.4em] tracking-normal text-neutral-300 transition-colors duration-200 group-hover:text-neutral-400 motion-reduce:transition-none">
+              unlevered.ai
+            </span>
+          </li>
+        </ul>
+      </section>
     </header>
   );
 }
