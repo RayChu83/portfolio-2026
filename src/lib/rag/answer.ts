@@ -44,7 +44,7 @@ export async function answerQuestion(
   history: Exchange[],
   abortSignal: AbortSignal,
 ): Promise<string> {
-  const { text } = await generateText({
+  const { text, finishReason } = await generateText({
     model: openai("gpt-5-mini"),
     system: SYSTEM_PROMPT,
     prompt: buildPrompt(question, history),
@@ -53,5 +53,10 @@ export async function answerQuestion(
     maxRetries: 1,
     abortSignal,
   });
-  return text.trim();
+  const answer = text.trim();
+  // Reasoning can spend the whole token cap, leaving empty or cut-off text; fail so the route returns its 500.
+  if (finishReason !== "stop" || !answer) {
+    throw new Error(`answer model finished with "${finishReason}" and ${answer.length} chars of text`);
+  }
+  return answer;
 }
