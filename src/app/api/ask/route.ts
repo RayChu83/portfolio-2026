@@ -1,19 +1,6 @@
-import { openai } from "@ai-sdk/openai";
-import { Index } from "@upstash/vector";
-import { embed } from "ai";
-import {
-  EMBEDDING_MODEL,
-  MAX_QUESTION_LENGTH,
-  MIN_SCORE,
-  REFUSAL_MESSAGE,
-  TOP_K,
-  type ChunkMetadata,
-  type Exchange,
-} from "@/lib/rag/config";
-import { answerQuestion, type Retrieved } from "@/lib/rag/answer";
-import { standaloneQuery } from "@/lib/rag/condense";
+import { MAX_QUESTION_LENGTH, type Exchange } from "@/lib/rag/config";
+import { answerQuestion } from "@/lib/rag/answer";
 import { parseHistory } from "@/lib/rag/history";
-import { replyIfSmallTalk } from "@/lib/rag/small-talk";
 import { allowAsk } from "@/lib/server/ask-rate-limit";
 import { isCrossSite } from "@/lib/server/network";
 
@@ -24,86 +11,68 @@ const DEADLINE_MS = 25_000;
 const RATE_LIMIT_MESSAGE = "Rate limit exceeded";
 const ERROR_MESSAGE = "Something went wrong. Please try again.";
 
-function selectRelevant(
-  matches: { score: number; metadata?: ChunkMetadata }[],
-): Retrieved[] {
-  return matches.flatMap(({ score, metadata }) =>
-    metadata && score >= MIN_SCORE ? [{ ...metadata, score }] : [],
-  );
-}
-
 function badRequest(error: string) {
   return Response.json({ error }, { status: 400 });
 }
 
 /** A text/plain POST skips the CORS preflight, so any page could otherwise call this route. */
 function isJson(request: Request) {
-  const mediaType = request.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+  const mediaType = request.headers
+    .get("content-type")
+    ?.split(";")[0]
+    .trim()
+    .toLowerCase();
   return mediaType === "application/json";
 }
 
-async function parseBody(
-  request: Request,
-): Promise<{ question: string; history: Exchange[]; previousAnswer?: string } | null> {
+async function parseBody(request: Request): Promise<{
+  question: string;
+  history: Exchange[];
+} | null> {
   const body: unknown = await request.json().catch(() => null);
-  if (typeof body !== "object" || body === null || !("question" in body)) return null;
+  if (typeof body !== "object" || body === null || !("question" in body))
+    return null;
   if (typeof body.question !== "string") return null;
   const question = body.question.trim();
   if (!question || question.length > MAX_QUESTION_LENGTH) return null;
-  const previousAnswer =
-    "previousAnswer" in body && typeof body.previousAnswer === "string" ? body.previousAnswer : undefined;
-  return { question, history: parseHistory("history" in body ? body.history : undefined), previousAnswer };
+  return {
+    question,
+    history: parseHistory("history" in body ? body.history : undefined),
+  };
 }
 
 export async function POST(request: Request) {
   if (isCrossSite(request.headers)) {
-    return Response.json({ error: "Cross-site requests are not allowed." }, { status: 403 });
+    return Response.json(
+      { error: "Cross-site requests are not allowed." },
+      { status: 403 },
+    );
   }
   if (!isJson(request)) {
-    return Response.json({ error: "Content-Type must be application/json." }, { status: 415 });
+    return Response.json(
+      { error: "Content-Type must be application/json." },
+      { status: 415 },
+    );
   }
 
-  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(DEADLINE_MS)]);
+  const signal = AbortSignal.any([
+    request.signal,
+    AbortSignal.timeout(DEADLINE_MS),
+  ]);
   const body = await parseBody(request);
   if (body === null) {
-    return badRequest(`Send a non-empty question of at most ${MAX_QUESTION_LENGTH} characters.`);
+    return badRequest(
+      `Send a non-empty question of at most ${MAX_QUESTION_LENGTH} characters.`,
+    );
   }
-  const { question, history, previousAnswer } = body;
+  const { question, history } = body;
 
   try {
     if (!(await allowAsk(request.headers))) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
-    const smallTalk = await replyIfSmallTalk(question, previousAnswer, signal);
-    if (smallTalk !== null) return Response.json({ answer: smallTalk, smallTalk: true });
-
-    const query = await standaloneQuery(question, history, signal);
-    const { embedding } = await embed({
-      model: openai.embedding(EMBEDDING_MODEL),
-      value: query,
-      maxRetries: 1,
-      abortSignal: signal,
-    });
-    // An unset token would make the client fall back to the read-write UPSTASH_VECTOR_REST_TOKEN.
-    const token = process.env.UPSTASH_VECTOR_REST_READ_ONLY_TOKEN;
-    if (!token) throw new Error("UPSTASH_VECTOR_REST_READ_ONLY_TOKEN is not set");
-    // A plain signal makes the Upstash client fake a 200 on abort; the function form rethrows.
-    const index = new Index<ChunkMetadata>({
-      url: process.env.UPSTASH_VECTOR_REST_URL,
-      token,
-      signal: () => signal,
-      retry: { retries: 1 },
-    });
-    const matches = await index.query({
-      vector: embedding,
-      topK: TOP_K,
-      includeMetadata: true,
-    });
-    const chunks = selectRelevant(matches);
-    if (!chunks.length) return Response.json({ answer: REFUSAL_MESSAGE });
-
-    return Response.json({ answer: await answerQuestion(question, chunks, history, signal) });
+    return Response.json(await answerQuestion(question, history, signal));
   } catch (error) {
     console.error("ask route failed", error);
     return Response.json({ error: ERROR_MESSAGE }, { status: 500 });

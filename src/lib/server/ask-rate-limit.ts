@@ -28,13 +28,7 @@ const globalPerDay = ratelimit(
   Ratelimit.fixedWindow(GLOBAL_PER_DAY, "1 d"),
 );
 
-/**
- * Whether this request may spend embedding and generation budget.
- *
- * The per-IP limits run first and short-circuit, so a throttled client never
- * consumes the global budget. One client can take at most `PER_IP_PER_DAY`
- * of it per environment.
- */
+/** Per-IP limits run first and short-circuit, so a throttled client never consumes the global budget. */
 export async function allowAsk(headers: Headers): Promise<boolean> {
   const id = hashedClientIp(headers);
   for (const limiter of [perMinute, perDay]) {
