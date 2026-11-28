@@ -72,9 +72,7 @@ export async function POST(request: Request) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
-    return Response.json({
-      answer: await answerQuestion(question, history, signal),
-    });
+    return Response.json(await answerQuestion(question, history, signal));
   } catch (error) {
     console.error("ask route failed", error);
     return Response.json({ error: ERROR_MESSAGE }, { status: 500 });

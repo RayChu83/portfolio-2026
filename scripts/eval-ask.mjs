@@ -3,8 +3,8 @@
  *
  * Usage: npm run eval:ask -- [runs]   (default 3 runs per case; every run must pass)
  * Every case calls answerQuestion, which has the full rag/ corpus in its system prompt.
- * Refusal cases (no `expect`) must return REFUSAL_MESSAGE exactly, and `missing` cases MISSING_MESSAGE.
- * `small-talk` cases must reply briefly, with neither message.
+ * Each case must return the reply kind expectedKind names. Refusal cases (no `expect`) return REFUSAL_MESSAGE,
+ * `missing` cases MISSING_MESSAGE, and `small-talk` cases a brief reply.
  * Every other case must answer and match every pattern in `expect`. A thrown error fails the run.
  */
 import { answerQuestion } from "../src/lib/rag/answer.ts";
@@ -140,12 +140,19 @@ const CASES = [
   { kind: "reaction", history: WORKED, q: "wow, really?", expect: /Blitz|Unlevered/i },
 ];
 
-function passes(kind, expect, a) {
-  if (kind === "missing") return a === MISSING_MESSAGE;
-  if (!expect && kind !== "small-talk") return a === REFUSAL_MESSAGE;
-  if (a === REFUSAL_MESSAGE || a === MISSING_MESSAGE) return false;
-  if (kind === "small-talk") return a.length <= MAX_SMALL_TALK_CHARS;
-  return [expect].flat().every((re) => re.test(a));
+/** The reply kind each case must produce; the client keeps only "answer" replies as history. */
+function expectedKind(kind, expect) {
+  if (kind === "missing" || kind === "small-talk") return kind;
+  return expect ? "answer" : "refusal";
+}
+
+function passes(kind, expect, reply) {
+  const want = expectedKind(kind, expect);
+  if (reply.kind !== want) return false;
+  if (want === "refusal") return reply.text === REFUSAL_MESSAGE;
+  if (want === "missing") return reply.text === MISSING_MESSAGE;
+  if (want === "small-talk") return reply.text.length <= MAX_SMALL_TALK_CHARS;
+  return [expect].flat().every((re) => re.test(reply.text));
 }
 
 let failed = 0;
@@ -153,8 +160,8 @@ for (const { kind, q, expect, history = [] } of CASES) {
   const results = await Promise.all(
     Array.from({ length: runs }, async () => {
       try {
-        const a = await answerQuestion(q, history, AbortSignal.timeout(25_000));
-        return { a, pass: passes(kind, expect, a) };
+        const reply = await answerQuestion(q, history, AbortSignal.timeout(25_000));
+        return { a: `[${reply.kind}] ${reply.text}`, pass: passes(kind, expect, reply) };
       } catch (error) {
         return { a: `ERROR: ${error instanceof Error ? error.message : error}`, pass: false };
       }

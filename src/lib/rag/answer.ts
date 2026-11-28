@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openai } from "@ai-sdk/openai";
-import { generateText } from "ai";
-import { MISSING_MESSAGE, REFUSAL_MESSAGE, type Exchange } from "./config.ts";
+import { generateText, jsonSchema, Output } from "ai";
+import { MISSING_MESSAGE, REFUSAL_MESSAGE, REPLY_KINDS, type Exchange, type Reply } from "./config.ts";
 import { formatHistory } from "./history.ts";
 
 /** Reasoning tokens count against this cap, so it must leave room for them at low effort. */
@@ -28,10 +28,22 @@ const SYSTEM_PROMPT = `You answer questions about the owner of this portfolio we
 - The only two exceptions to the rule above:
   1. If the message's whole purpose is to learn a fact about the portfolio owner that the context does not contain, reply with exactly "${MISSING_MESSAGE}" and nothing else.
   2. If the whole message is only a greeting, thanks, farewell or compliment, or asks who you are or what you can do, reply in one or two short sentences in the language of the message and invite a question about the owner's background, projects or skills. State no facts about the owner. Never use this reply to decline a request.
+- Put the reply in "text". Set "kind" to "refusal" or "missing" when the reply is that exact message, to "small-talk" for exception 2, and to "answer" otherwise.
 
 <context>
 ${CORPUS}
 </context>`;
+
+/** OpenAI's strict structured output enforces this shape, so `kind` replaces matching the reply text. */
+const REPLY_SCHEMA = jsonSchema<Reply>({
+  type: "object",
+  properties: {
+    kind: { type: "string", enum: [...REPLY_KINDS] },
+    text: { type: "string" },
+  },
+  required: ["kind", "text"],
+  additionalProperties: false,
+});
 
 /** A first question is sent bare, so single-turn behavior matches the pre-history prompt. */
 function buildPrompt(question: string, history: Exchange[]): string {
@@ -43,20 +55,25 @@ export async function answerQuestion(
   question: string,
   history: Exchange[],
   abortSignal: AbortSignal,
-): Promise<string> {
-  const { text, finishReason } = await generateText({
+): Promise<Reply> {
+  const result = await generateText({
     model: openai("gpt-5-mini"),
     system: SYSTEM_PROMPT,
     prompt: buildPrompt(question, history),
+    output: Output.object({ schema: REPLY_SCHEMA, name: "reply" }),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     providerOptions: { openai: { reasoningEffort: "low" } },
     maxRetries: 1,
     abortSignal,
   });
-  const answer = text.trim();
-  // Reasoning can spend the whole token cap, leaving empty or cut-off text; fail so the route returns its 500.
-  if (finishReason !== "stop" || !answer) {
-    throw new Error(`answer model finished with "${finishReason}" and ${answer.length} chars of text`);
+  // Reasoning can spend the whole token cap, leaving no or cut-off output; fail so the route returns its 500.
+  if (result.finishReason !== "stop") {
+    throw new Error(`answer model finished with "${result.finishReason}"`);
   }
-  return answer;
+  const { kind, text } = result.output;
+  if (kind === "refusal") return { kind, text: REFUSAL_MESSAGE };
+  if (kind === "missing") return { kind, text: MISSING_MESSAGE };
+  const reply = text.trim();
+  if (!reply) throw new Error(`answer model returned an empty "${kind}" reply`);
+  return { kind, text: reply };
 }

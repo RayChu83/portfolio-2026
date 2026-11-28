@@ -1,46 +1,43 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { MAX_HISTORY_TURNS, MISSING_MESSAGE, REFUSAL_MESSAGE, type Exchange } from "@/lib/rag/config";
+import { isReplyKind, MAX_HISTORY_TURNS, type Exchange, type Reply, type ReplyKind } from "@/lib/rag/config";
 
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** Set on a successful assistant reply only. */
+  kind?: ReplyKind;
   failed?: boolean;
 };
 
 const FALLBACK_ERROR = "Something went wrong. Please try again.";
 
-/** Refusals and misses are left out so the model is not primed to repeat them. */
+/**
+ * Only answers are kept: refusals and misses would prime the model to repeat them,
+ * and small talk would evict a real question from the few turns sent.
+ */
 function recentHistory(messages: ChatMessage[]): Exchange[] {
   const exchanges = messages.flatMap((message, i) => {
     const prev = messages[i - 1];
-    const usable =
-      message.role === "assistant" &&
-      prev?.role === "user" &&
-      !message.failed &&
-      message.text !== REFUSAL_MESSAGE &&
-      message.text !== MISSING_MESSAGE;
+    const usable = message.kind === "answer" && prev?.role === "user";
     return usable ? [{ question: prev.text, answer: message.text }] : [];
   });
   return exchanges.slice(-MAX_HISTORY_TURNS);
 }
 
-async function ask(
-  question: string,
-  history: Exchange[],
-): Promise<string> {
+async function ask(question: string, history: Exchange[]): Promise<Reply> {
   const response = await fetch("/api/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, history }),
   });
-  const body: { answer?: string; error?: string } = await response.json().catch(() => ({}));
-  if (!response.ok || typeof body.answer !== "string") {
+  const body: { kind?: unknown; text?: unknown; error?: string } = await response.json().catch(() => ({}));
+  if (!response.ok || !isReplyKind(body.kind) || typeof body.text !== "string") {
     throw new Error(body.error ?? FALLBACK_ERROR);
   }
-  return body.answer;
+  return { kind: body.kind, text: body.text };
 }
 
 /** Owns the conversation. Lives above the drawer so closing it keeps the chat. */
@@ -56,7 +53,7 @@ export function useAskChat() {
       setPending(true);
       let reply: Omit<ChatMessage, "id">;
       try {
-        reply = { role: "assistant", text: await ask(question, history) };
+        reply = { role: "assistant", ...(await ask(question, history)) };
       } catch (error) {
         const text = error instanceof Error ? error.message : FALLBACK_ERROR;
         reply = { role: "assistant", text, failed: true };

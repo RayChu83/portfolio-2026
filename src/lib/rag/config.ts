@@ -7,6 +7,15 @@ export const REFUSAL_MESSAGE =
 export const MISSING_MESSAGE =
   "Sorry, I couldn't find what you're looking for. Try asking a different question.";
 
+/** Only an "answer" holds facts a later question can refer to, so it is the only kind kept as history. */
+export const REPLY_KINDS = ["answer", "small-talk", "refusal", "missing"] as const;
+export type ReplyKind = (typeof REPLY_KINDS)[number];
+export type Reply = { kind: ReplyKind; text: string };
+
+export function isReplyKind(value: unknown): value is ReplyKind {
+  return REPLY_KINDS.includes(value as ReplyKind);
+}
+
 /** One earlier question and its answer. Sent by the client, so the server treats it as untrusted. */
 export type Exchange = { question: string; answer: string };
 
