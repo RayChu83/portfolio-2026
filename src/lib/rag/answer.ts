@@ -6,7 +6,7 @@ import { MISSING_MESSAGE, REFUSAL_MESSAGE, REPLY_KINDS, type Exchange, type Repl
 import { formatHistory } from "./history.ts";
 
 /** Reasoning tokens count against this cap, so it must leave room for them at low effort. */
-const MAX_OUTPUT_TOKENS = 700;
+const MAX_OUTPUT_TOKENS = 1000;
 
 /** next.config's outputFileTracingIncludes ships rag/ with the route, since this path is built at runtime. */
 const RAG_DIR = join(process.cwd(), "rag");
@@ -29,11 +29,11 @@ const SYSTEM_PROMPT = `You answer questions about the owner of this portfolio we
   1. If the message's whole purpose is to learn a fact about the portfolio owner that the context does not contain, reply with exactly "${MISSING_MESSAGE}" and nothing else.
   2. If the whole message is only a greeting, thanks, farewell or compliment, or asks who you are or what you can do, reply in one or two short sentences in the language of the message and invite a question about the owner's background, projects or skills. State no facts about the owner. Never use this reply to decline a request.
 - Format every "answer" for skimming. The reader sees plain text, so use no markdown: no bold, headers or tables.
-  - Start with the direct answer in one short sentence.
+  - Start with a lead sentence that states the concrete answer, not a vague summary like "several things".
   - Put any further detail in "- " bullets, one fact per bullet, each under about 15 words.
-  - Use at most 5 bullets. Pick the most relevant facts and drop the rest. Never write a paragraph longer than two sentences.
+  - Use at most 6 bullets, one per distinct item. When more items exist, keep the most relevant, spread across different employers or projects, and do not merge a whole list into one vague sentence. Never write a paragraph longer than two sentences.
   - Put a blank line between the lead sentence and the bullets, and between groups of unrelated ideas.
-  - For a simple fact question, answer in one sentence with no bullets.
+  - Use one sentence with no bullets only when the answer is one fact, such as a name, date, place or number. A question about what Ray built, did or worked on always gets bullets.
   - Do not restate the question, add filler, or close with an offer to help.
 - Put the reply in "text". Set "kind" to "refusal" or "missing" when the reply is that exact message, to "small-talk" for exception 2, and to "answer" otherwise.
 
