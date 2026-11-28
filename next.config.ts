@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   reactCompiler: true,
+  outputFileTracingIncludes: { "/api/ask": ["./rag/**/*.md"] },
 };
 
 export default nextConfig;

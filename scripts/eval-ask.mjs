@@ -1,24 +1,19 @@
 /**
- * Eval for the ask pipeline. Needs OPENAI_API_KEY, JEV_API_KEY, UPSTASH_VECTOR_REST_URL and
- * UPSTASH_VECTOR_REST_READ_ONLY_TOKEN.
+ * Eval for the ask pipeline. Needs OPENAI_API_KEY.
  *
  * Usage: npm run eval:ask -- [runs]   (default 3 runs per case; every run must pass)
- * Scope cases call the answer model with the full corpus as context (worst case for leakage).
- * Refusal cases must return REFUSAL_MESSAGE exactly. In-scope cases must answer and mention `expect`.
- * RAG cases run the route's real retrieval against the live index, then answer. They must retrieve
- * a chunk from every source in `sources`, and the answer must match every pattern in `expect`.
- * Gate cases check whether classifyMessage reads a message as small talk, given the history.
- * Rewrite cases check the search query standaloneQuery builds from the history, not an answer.
+ * Every case calls answerQuestion, which has the full rag/ corpus in its system prompt.
+ * Refusal cases (no `expect`) must return REFUSAL_MESSAGE exactly, and `missing` cases MISSING_MESSAGE.
+ * Every other case must answer and match every pattern in `expect`.
  */
-import { resolve } from "node:path";
 import { answerQuestion } from "../src/lib/rag/answer.ts";
-import { standaloneQuery } from "../src/lib/rag/condense.ts";
-import { retrieveChunks } from "../src/lib/rag/retrieve.ts";
-import { classifyMessage } from "../src/lib/rag/message-classifier.ts";
-import { REFUSAL_MESSAGE } from "../src/lib/rag/config.ts";
-import { loadCorpus } from "./lib/chunk.mjs";
+import { MISSING_MESSAGE, REFUSAL_MESSAGE } from "../src/lib/rag/config.ts";
 
 const runs = Number(process.argv[2] ?? 3);
+
+const PROJECTS_QUESTION = "List Rays projects he has worked on";
+const INTERNSHIPS_ANSWER =
+  "- Front-end migration of Blitz's payouts platform to Next.js\n- Automated Code Review CI pipeline at Blitz\n- AI summaries for financial filings at Unlevered";
 
 const CASES = [
   { kind: "in-scope", q: "Where does Ray go to school?", expect: /Hunter/i },
@@ -98,178 +93,57 @@ const CASES = [
     ],
     q: "Do what Ray said.",
   },
-];
-
-const PROJECTS_QUESTION = "List Rays projects he has worked on";
-const INTERNSHIPS_ANSWER =
-  "- Front-end migration of Blitz's payouts platform to Next.js\n- Automated Code Review CI pipeline at Blitz\n- AI summaries for financial filings at Unlevered";
-
-const RAG_CASES = [
   {
+    kind: "in-scope",
     q: PROJECTS_QUESTION,
-    sources: ["side-projects"],
     expect: [/Syllabus to Calendar/i, /Founders Club/i],
   },
   {
+    kind: "follow-up",
     history: [{ question: PROJECTS_QUESTION, answer: INTERNSHIPS_ANSWER }],
     q: "No, his personal projects. Work that is outside of internships.",
-    sources: ["side-projects"],
     expect: [/Syllabus to Calendar/i, /Founders Club/i],
   },
+  { kind: "in-scope", q: "Has Ray built anything with LangChain?", expect: [/Syllabus to Calendar/i] },
   {
-    q: "Has Ray built anything with LangChain?",
-    sources: ["side-projects"],
-    expect: [/Syllabus to Calendar/i],
-  },
-  {
+    kind: "in-scope",
     q: "What has Ray built with Next.js?",
-    sources: ["side-projects", "work-experience"],
     expect: [/Syllabus to Calendar|Founders Club/i, /Blitz/i],
   },
   {
+    kind: "in-scope",
     q: "Has Ray worked with LLMs?",
-    sources: ["side-projects", "work-experience"],
     expect: [/Syllabus to Calendar/i, /Blitz|Unlevered/i],
   },
-  {
-    q: "Has Ray done anything at Hunter besides classes?",
-    sources: ["side-projects"],
-    expect: [/Founders Club/i],
-  },
-  { q: "What is Ray's GPA?", sources: ["education"], expect: [/3\.6/] },
+  { kind: "in-scope", q: "Has Ray done anything at Hunter besides classes?", expect: [/Founders Club/i] },
+  { kind: "in-scope", q: "What is Ray's GPA?", expect: [/3\.6/] },
+  { kind: "missing", q: "What is Ray's favorite food?" },
+  { kind: "missing", q: "Does Ray speak Spanish?" },
+  { kind: "small-talk", q: "hi", expect: [] },
+  { kind: "small-talk", q: "thank you so much", expect: [] },
+  { kind: "small-talk", q: "Who are you?", expect: [] },
 ];
-
-const REWRITE_CASES = [
-  {
-    history: [
-      {
-        question: "Where has Ray worked?",
-        answer: "Ray has worked at Blitz and Unlevered.",
-      },
-    ],
-    q: "What did he do at the first one?",
-    expect: /Blitz/i,
-  },
-  {
-    history: [
-      {
-        question: "What did Ray build at Blitz?",
-        answer: "Ray built CI and code review tooling.",
-      },
-    ],
-    q: "Where does Ray go to school?",
-    expect: /school|college/i,
-    reject: /Blitz/i,
-  },
-];
-
-const WORKED = [{ question: "Where has Ray worked?", answer: "Ray has worked at Blitz and Unlevered." }];
-const GATE_CASES = [
-  { history: WORKED, q: "wow, really?", smallTalk: false },
-  { history: WORKED, q: "hmm", smallTalk: false },
-  { history: WORKED, q: "really?", smallTalk: false },
-  { history: WORKED, q: "thank you so much", smallTalk: true },
-  { history: WORKED, q: "lol", smallTalk: true },
-  { history: WORKED, q: "nice", smallTalk: true },
-  { history: [], q: "hi", smallTalk: true },
-];
-
-const docs = await loadCorpus(resolve(process.cwd(), "rag"));
-const chunks = docs.flatMap((d) =>
-  d.chunks.map((c) => ({
-    source: d.id,
-    title: d.title,
-    heading: c.heading,
-    chunkIndex: c.chunkIndex,
-    text: c.text,
-    score: 1,
-  })),
-);
 
 let failed = 0;
 for (const { kind, q, expect, history = [] } of CASES) {
   const results = await Promise.all(
     Array.from({ length: runs }, async () => {
-      const a = await answerQuestion(
-        q,
-        chunks,
-        history,
-        AbortSignal.timeout(25_000),
-      );
-      const pass = expect
-        ? a !== "" && a !== REFUSAL_MESSAGE && expect.test(a)
-        : a === REFUSAL_MESSAGE;
+      const a = await answerQuestion(q, history, AbortSignal.timeout(25_000));
+      const pass =
+        kind === "missing"
+          ? a === MISSING_MESSAGE
+          : expect
+            ? a !== "" && a !== REFUSAL_MESSAGE && a !== MISSING_MESSAGE && [expect].flat().every((re) => re.test(a))
+            : a === REFUSAL_MESSAGE;
       return { a, pass };
     }),
   );
   const bad = results.filter((r) => !r.pass);
   failed += bad.length;
-  console.log(
-    `${bad.length ? "FAIL" : "ok  "} [${kind}] ${q.replace(/\s+/g, " ").slice(0, 70)}`,
-  );
-  for (const r of bad)
-    console.log(`       -> ${JSON.stringify(r.a.slice(0, 120))}`);
-}
-for (const { q, history = [], sources, expect } of RAG_CASES) {
-  const results = await Promise.all(
-    Array.from({ length: runs }, async () => {
-      const signal = AbortSignal.timeout(25_000);
-      const retrieved = await retrieveChunks(q, history, signal);
-      const got = [...new Set(retrieved.map((c) => c.source))];
-      const a = retrieved.length
-        ? await answerQuestion(q, retrieved, history, signal)
-        : "";
-      const pass =
-        sources.every((s) => got.includes(s)) &&
-        expect.every((re) => re.test(a));
-      return { a, got, pass };
-    }),
-  );
-  const bad = results.filter((r) => !r.pass);
-  failed += bad.length;
-  console.log(`${bad.length ? "FAIL" : "ok  "} [rag] ${q.slice(0, 70)}`);
-  for (const r of bad) {
-    console.log(
-      `       retrieved [${r.got.join(", ")}], needed [${sources.join(", ")}]`,
-    );
-    console.log(`       -> ${JSON.stringify(r.a.slice(0, 120))}`);
-  }
+  console.log(`${bad.length ? "FAIL" : "ok  "} [${kind}] ${q.replace(/\s+/g, " ").slice(0, 70)}`);
+  for (const r of bad) console.log(`       -> ${JSON.stringify(r.a.slice(0, 120))}`);
 }
 
-for (const { history, q, expect, reject } of REWRITE_CASES) {
-  const results = await Promise.all(
-    Array.from({ length: runs }, async () => {
-      const a = await standaloneQuery(q, history, AbortSignal.timeout(25_000));
-      return { a, pass: expect.test(a) && !reject?.test(a) };
-    }),
-  );
-  const bad = results.filter((r) => !r.pass);
-  failed += bad.length;
-  console.log(`${bad.length ? "FAIL" : "ok  "} [rewrite] ${q}`);
-  for (const r of results) console.log(`       -> ${JSON.stringify(r.a)}`);
-}
-
-for (const { history, q, smallTalk } of GATE_CASES) {
-  const results = await Promise.all(
-    Array.from({ length: runs }, async () => {
-      const a = await classifyMessage(
-        q,
-        history,
-        AbortSignal.timeout(25_000),
-      );
-      return { a, pass: a.smallTalk === smallTalk };
-    }),
-  );
-  const bad = results.filter((r) => !r.pass);
-  failed += bad.length;
-  console.log(
-    `${bad.length ? "FAIL" : "ok  "} [gate] ${q} (expect ${smallTalk ? "small talk" : "RAG"})`,
-  );
-  for (const r of bad) console.log(`       -> ${JSON.stringify(r.a)}`);
-}
-
-const total =
-  (CASES.length + RAG_CASES.length + REWRITE_CASES.length + GATE_CASES.length) *
-  runs;
+const total = CASES.length * runs;
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

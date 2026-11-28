@@ -1,12 +1,6 @@
-import {
-  MAX_QUESTION_LENGTH,
-  MISSING_MESSAGE,
-  type Exchange,
-} from "@/lib/rag/config";
+import { MAX_QUESTION_LENGTH, type Exchange } from "@/lib/rag/config";
 import { answerQuestion } from "@/lib/rag/answer";
 import { parseHistory } from "@/lib/rag/history";
-import { retrieveChunks } from "@/lib/rag/retrieve";
-import { classifyMessage, smallTalkReply } from "@/lib/rag/message-classifier";
 import { allowAsk } from "@/lib/server/ask-rate-limit";
 import { isCrossSite } from "@/lib/server/network";
 
@@ -78,16 +72,8 @@ export async function POST(request: Request) {
       return Response.json({ error: RATE_LIMIT_MESSAGE }, { status: 429 });
     }
 
-    if ((await classifyMessage(question, history, signal)).smallTalk) {
-      const reply = await smallTalkReply(question, signal);
-      if (reply !== null) return Response.json({ answer: reply, smallTalk: true });
-    }
-
-    const chunks = await retrieveChunks(question, history, signal);
-    if (!chunks.length) return Response.json({ answer: MISSING_MESSAGE });
-
     return Response.json({
-      answer: await answerQuestion(question, chunks, history, signal),
+      answer: await answerQuestion(question, history, signal),
     });
   } catch (error) {
     console.error("ask route failed", error);
