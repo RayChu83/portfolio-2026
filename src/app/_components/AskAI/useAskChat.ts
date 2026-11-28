@@ -29,20 +29,14 @@ function recentHistory(messages: ChatMessage[]): Exchange[] {
   return exchanges.slice(-MAX_HISTORY_TURNS);
 }
 
-/** Only the small-talk gate reads this, so it includes small talk that history leaves out. */
-function lastAnswer(messages: ChatMessage[]): string | undefined {
-  return messages.findLast((m) => m.role === "assistant" && !m.failed)?.text;
-}
-
 async function ask(
   question: string,
   history: Exchange[],
-  previousAnswer: string | undefined,
 ): Promise<{ answer: string; smallTalk?: boolean }> {
   const response = await fetch("/api/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, history, previousAnswer }),
+    body: JSON.stringify({ question, history }),
   });
   const body: { answer?: string; smallTalk?: boolean; error?: string } = await response.json().catch(() => ({}));
   if (!response.ok || typeof body.answer !== "string") {
@@ -60,12 +54,11 @@ export function useAskChat() {
     async (question: string) => {
       if (pending) return;
       const history = recentHistory(messages);
-      const previousAnswer = lastAnswer(messages);
       setMessages((m) => [...m, { id: crypto.randomUUID(), role: "user", text: question }]);
       setPending(true);
       let reply: Omit<ChatMessage, "id">;
       try {
-        const { answer, smallTalk } = await ask(question, history, previousAnswer);
+        const { answer, smallTalk } = await ask(question, history);
         reply = { role: "assistant", text: answer, smallTalk };
       } catch (error) {
         const text = error instanceof Error ? error.message : FALLBACK_ERROR;

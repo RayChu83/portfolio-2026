@@ -7,14 +7,14 @@
  * Refusal cases must return REFUSAL_MESSAGE exactly. In-scope cases must answer and mention `expect`.
  * RAG cases run the route's real retrieval against the live index, then answer. They must retrieve
  * a chunk from every source in `sources`, and the answer must match every pattern in `expect`.
- * Gate cases check whether replyIfSmallTalk takes a message, given the assistant's previous answer.
+ * Gate cases check whether classifyMessage reads a message as small talk, given the history.
  * Rewrite cases check the search query standaloneQuery builds from the history, not an answer.
  */
 import { resolve } from "node:path";
 import { answerQuestion } from "../src/lib/rag/answer.ts";
 import { standaloneQuery } from "../src/lib/rag/condense.ts";
 import { retrieveChunks } from "../src/lib/rag/retrieve.ts";
-import { replyIfSmallTalk } from "../src/lib/rag/small-talk.ts";
+import { classifyMessage } from "../src/lib/rag/message-classifier.ts";
 import { REFUSAL_MESSAGE } from "../src/lib/rag/config.ts";
 import { loadCorpus } from "./lib/chunk.mjs";
 
@@ -163,15 +163,15 @@ const REWRITE_CASES = [
   },
 ];
 
-const WORKED = "Ray has worked at Blitz and Unlevered.";
+const WORKED = [{ question: "Where has Ray worked?", answer: "Ray has worked at Blitz and Unlevered." }];
 const GATE_CASES = [
-  { previousAnswer: WORKED, q: "wow, really?", smallTalk: false },
-  { previousAnswer: WORKED, q: "hmm", smallTalk: false },
-  { previousAnswer: WORKED, q: "really?", smallTalk: false },
-  { previousAnswer: WORKED, q: "thank you so much", smallTalk: true },
-  { previousAnswer: WORKED, q: "lol", smallTalk: true },
-  { previousAnswer: WORKED, q: "nice", smallTalk: true },
-  { previousAnswer: undefined, q: "hi", smallTalk: true },
+  { history: WORKED, q: "wow, really?", smallTalk: false },
+  { history: WORKED, q: "hmm", smallTalk: false },
+  { history: WORKED, q: "really?", smallTalk: false },
+  { history: WORKED, q: "thank you so much", smallTalk: true },
+  { history: WORKED, q: "lol", smallTalk: true },
+  { history: WORKED, q: "nice", smallTalk: true },
+  { history: [], q: "hi", smallTalk: true },
 ];
 
 const docs = await loadCorpus(resolve(process.cwd(), "rag"));
@@ -249,15 +249,15 @@ for (const { history, q, expect, reject } of REWRITE_CASES) {
   for (const r of results) console.log(`       -> ${JSON.stringify(r.a)}`);
 }
 
-for (const { previousAnswer, q, smallTalk } of GATE_CASES) {
+for (const { history, q, smallTalk } of GATE_CASES) {
   const results = await Promise.all(
     Array.from({ length: runs }, async () => {
-      const a = await replyIfSmallTalk(
+      const a = await classifyMessage(
         q,
-        previousAnswer,
+        history,
         AbortSignal.timeout(25_000),
       );
-      return { a, pass: (a !== null) === smallTalk };
+      return { a, pass: a.smallTalk === smallTalk };
     }),
   );
   const bad = results.filter((r) => !r.pass);
